@@ -84,7 +84,7 @@ flowchart LR
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
-![PhyThera n8n orchestration overview](docs/screenshots/workflows/01_orchestrator_overview.jpg)
+![PhyThera n8n orchestration overview](docs/screenshots/workflows/01_orchestrator_overview.png)
 
 ---
 
@@ -387,18 +387,18 @@ The project is designed around the judging dimensions:
 ## Screenshots
 
 ### Indication-first ranking
-![Indication search and ranked plant evidence](docs/screenshots/frontend/01_indication_search.jpg)
+![Indication search and ranked plant evidence](docs/screenshots/frontend/01_indication_search.png)
 
 ### Plant evidence profile
-![Plant evidence profile](docs/screenshots/frontend/02_evidence_profile.jpg)
+![Plant evidence profile](docs/screenshots/frontend/02_evidence_profile.png)
 
 ### Clinical evidence and safety
-![Detailed clinical evidence](docs/screenshots/frontend/03_clinical_evidence.jpg)
+![Detailed clinical evidence](docs/screenshots/frontend/03_clinical_evidence.png)
 
-![Source-specific safety](docs/screenshots/frontend/04_safety.jpg)
+![Source-specific safety](docs/screenshots/frontend/04_safety.png)
 
 ### Cross-cultural mapping
-![Cross-cultural mapping](docs/screenshots/frontend/05_cross_cultural_mapping.jpg)
+![Cross-cultural mapping](docs/screenshots/frontend/05_cross_cultural_mapping.png)
 
 Additional workflow screenshots are available in `docs/screenshots/workflows/`.
 

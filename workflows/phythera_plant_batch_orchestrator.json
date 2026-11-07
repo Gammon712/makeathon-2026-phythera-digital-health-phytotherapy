@@ -1,0 +1,2317 @@
+{
+  "name": "PhyThera Plant Batch Orchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ],
+      "id": "8ed46e11-574d-4505-a472-877bf51a41be",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "plant_ingestion_queue",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "pending"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        160
+      ],
+      "id": "23676e49-1b8a-4c22-88ad-af48c12f5609",
+      "name": "Get Pending Queue"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\n\nif (rows.length === 0) {\n  return [];\n}\n\nrows.sort((a, b) => {\n  const priorityA = a.priority ?? 100;\n  const priorityB = b.priority ?? 100;\n\n  if (priorityA !== priorityB) {\n    return priorityA - priorityB;\n  }\n\n  return new Date(a.created_at) - new Date(b.created_at);\n});\n\nreturn [\n  {\n    json: rows[0]\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        160
+      ],
+      "id": "89d3e932-516c-4e21-b831-5bdb3040a7d1",
+      "name": "Pick Next Plant"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_ingestion_queue",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "running"
+            },
+            {
+              "fieldId": "current_step",
+              "fieldValue": "ema"
+            },
+            {
+              "fieldId": "attempts",
+              "fieldValue": "={{ Number($json.attempts ?? 0) + 1 }}"
+            },
+            {
+              "fieldId": "started_at",
+              "fieldValue": "={{ $json.started_at || $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        160
+      ],
+      "id": "47a7e58e-e039-4fe3-96c3-bfe8538f7757",
+      "name": "Mark Running"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Pick Next Plant').first().json;\n\nreturn [\n  {\n    json: {\n      queue_id: q.id,\n      plant_id: q.plant_id,\n      scientific_name: q.scientific_name,\n      target_indication: q.target_indication,\n      indication_context: q.indication_context,\n      ema_source_url: q.ema_source_url,\n      modules: q.modules,\n      priority: q.priority\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        160
+      ],
+      "id": "41559ee2-762b-4184-a81f-4f7fd6db41b7",
+      "name": "Prepare EMA Job"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "PhyThera – EMA Ingestion v0.1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1344,
+        80
+      ],
+      "id": "847f4ca9-a353-4900-9b44-83a3f998bf51",
+      "name": "Execute EMA Extraction"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_ingestion_queue",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Prepare EMA Job').first().json.queue_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "running"
+            },
+            {
+              "fieldId": "current_step",
+              "fieldValue": "modern_evidence"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        160
+      ],
+      "id": "a4cdd403-39f3-4646-9951-eb384f7c6c93",
+      "name": "Advance to Modern Evidence"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "indications",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "normalized_term",
+              "condition": "eq",
+              "keyValue": "={{ $('Prepare EMA Job').first().json.indication_context }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        160
+      ],
+      "id": "702e6fbb-25b0-47b3-9e8f-31e22183b8ec",
+      "name": "Lookup PubMed Indication"
+    },
+    {
+      "parameters": {
+        "jsCode": "const job =\n  $('Prepare EMA Job').first().json;\n\nconst indication =\n  $('Lookup PubMed Indication').first().json;\n\n\n// ============================================================\n// 1. Botanical search terms\n// ============================================================\n\n// \"Glycyrrhiza glabra L.\"\n// -> \"Glycyrrhiza glabra\"\nconst scientificName =\n  String(job.scientific_name ?? '')\n    .trim()\n    .split(/\\s+/)\n    .slice(0, 2)\n    .join(' ');\n\n// \"Glycyrrhiza glabra\"\n// -> \"Glycyrrhiza\"\nconst genus =\n  scientificName\n    .split(/\\s+/)[0] ??\n  scientificName;\n\n\n// ============================================================\n// 2. Indication terms from database\n// ============================================================\n\nconst rawTerms = [\n  indication.display_name,\n\n  ...(\n    Array.isArray(indication.synonyms)\n      ? indication.synonyms\n      : []\n  )\n]\n  .filter(Boolean)\n  .map(term =>\n    String(term)\n      .trim()\n      .toLowerCase()\n  )\n  .filter(Boolean);\n\n\n// Remove duplicate phrases\nconst phraseTerms = [\n  ...new Set(rawTerms)\n];\n\n\n// ============================================================\n// 3. Generate broader indication keywords\n//\n// Exact phrases can fail in PubMed when the wording is not\n// present verbatim. Therefore also search meaningful individual\n// clinical terms.\n//\n// The AI screening step remains responsible for deciding\n// whether the retrieved paper actually matches the indication.\n// ============================================================\n\nconst stopWords = new Set([\n  'with',\n  'associated',\n  'association',\n  'and',\n  'the',\n  'for',\n  'from',\n  'into',\n  'mild',\n  'symptoms',\n  'symptom',\n  'treatment',\n  'prevention',\n  'prevent',\n  'adults',\n  'adult',\n  'patients',\n  'patient'\n]);\n\n\nconst keywordTerms = phraseTerms\n  .flatMap(term =>\n    term\n      .replace(/[^a-z0-9\\s-]/gi, ' ')\n      .split(/\\s+/)\n  )\n  .map(term =>\n    term.trim().toLowerCase()\n  )\n  .filter(term =>\n    term.length >= 4 &&\n    !stopWords.has(term)\n  );\n\n\nconst indicationKeywords = [\n  ...new Set(keywordTerms)\n];\n\n\n// ============================================================\n// 4. Escape PubMed strings\n// ============================================================\n\nfunction escapePubMed(value) {\n  return String(value)\n    .replace(/\"/g, '\\\\\"');\n}\n\n\n// ============================================================\n// 5. Plant query\n//\n// Retrieval is intentionally broader than screening.\n//\n// Scientific species name = preferred\n// Genus = fallback so papers using a less precise botanical\n// label are still retrieved.\n//\n// Species specificity is checked later by the AI screen.\n// ============================================================\n\nconst plantQuery = [\n  `\"${escapePubMed(scientificName)}\"[Title/Abstract]`,\n  `\"${escapePubMed(genus)}\"[Title/Abstract]`\n].join(' OR ');\n\n\n// ============================================================\n// 6. Indication query\n//\n// Use both:\n// - exact phrases\n// - individual clinically meaningful keywords\n//\n// Example for Liquorice:\n// phrases:\n//   \"productive cough\"\n//   \"cough with phlegm\"\n//\n// keywords:\n//   cough\n//   cold\n//   expectorant\n//   productive\n//   phlegm\n// ============================================================\n\nconst phraseQuery = phraseTerms\n  .map(term =>\n    `\"${escapePubMed(term)}\"[Title/Abstract]`\n  );\n\n\nconst keywordQuery = indicationKeywords\n  .map(term =>\n    `\"${escapePubMed(term)}\"[Title/Abstract]`\n  );\n\n\nconst indicationQuery = [\n  ...new Set([\n    ...phraseQuery,\n    ...keywordQuery\n  ])\n].join(' OR ');\n\n\n// ============================================================\n// 7. Review query\n//\n// IMPORTANT:\n// Retrieve ordinary reviews as well.\n//\n// Whether a review qualifies as systematic clinical evidence\n// is decided later by the Evidence Screening step.\n// ============================================================\n\nconst reviewTypeQuery = [\n  '\"Review\"[Publication Type]',\n  '\"Meta-Analysis\"[Publication Type]',\n  'systematic[sb]'\n].join(' OR ');\n\n\nconst pubmedReviewQuery =\n  `(${plantQuery}) AND ` +\n  `(${indicationQuery}) AND ` +\n  `(${reviewTypeQuery}) AND ` +\n  `humans[MeSH Terms] AND ` +\n  `hasabstract`;\n\n\n// ============================================================\n// 8. Trial query\n// ============================================================\n\nconst trialTypeQuery = [\n  '\"Randomized Controlled Trial\"[Publication Type]',\n  '\"Clinical Trial\"[Publication Type]'\n].join(' OR ');\n\n\nconst pubmedTrialQuery =\n  `(${plantQuery}) AND ` +\n  `(${indicationQuery}) AND ` +\n  `(${trialTypeQuery}) AND ` +\n  `humans[MeSH Terms] AND ` +\n  `hasabstract`;\n\n\n// ============================================================\n// 9. Output\n// ============================================================\n\nreturn [\n  {\n    json: {\n\n      ...job,\n\n      pubmed_scientific_name:\n        scientificName,\n\n      pubmed_genus:\n        genus,\n\n      pubmed_indication_terms:\n        phraseTerms,\n\n      pubmed_indication_keywords:\n        indicationKeywords,\n\n      pubmed_review_query:\n        pubmedReviewQuery,\n\n      pubmed_trial_query:\n        pubmedTrialQuery,\n\n      // Compatibility with older downstream nodes\n      pubmed_query:\n        pubmedReviewQuery\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        160
+      ],
+      "id": "b7da2d8a-fc6e-4d74-9f93-1f081686c5b3",
+      "name": "Prepare PubMed Query"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfunction getIds(item) {\n  const ids = item?.json?.esearchresult?.idlist;\n\n  return Array.isArray(ids)\n    ? ids.map(String)\n    : [];\n}\n\nfunction getQuery(item) {\n  return String(\n    item?.json?.esearchresult?.querytranslation ?? ''\n  ).toLowerCase();\n}\n\n// ---------------------------------------------\n// Identify review and trial search result\n// ---------------------------------------------\n\nconst reviewItem = items.find(item => {\n  const query = getQuery(item);\n\n  return (\n    query.includes('systematic') ||\n    query.includes('meta-analysis')\n  );\n});\n\nconst trialItem = items.find(item => {\n  const query = getQuery(item);\n\n  return (\n    query.includes('randomized controlled trial') ||\n    query.includes('clinical trial')\n  );\n});\n\n// ---------------------------------------------\n// Extract IDs\n// ---------------------------------------------\n\nconst reviewIds = getIds(reviewItem);\nconst trialIds = getIds(trialItem);\n\n// Reviews first, then trials\nconst allIds = [\n  ...reviewIds,\n  ...trialIds\n];\n\n// Remove duplicates while preserving order\nconst uniqueIds = [\n  ...new Set(allIds)\n];\n\n// Find duplicate PMIDs for QC\nconst duplicates = allIds.filter(\n  (id, index) =>\n    allIds.indexOf(id) !== index\n);\n\n// ---------------------------------------------\n// PubMed total counts\n// ---------------------------------------------\n\nconst reviewTotalCount = Number(\n  reviewItem?.json?.esearchresult?.count ?? 0\n);\n\nconst trialTotalCount = Number(\n  trialItem?.json?.esearchresult?.count ?? 0\n);\n\n// ---------------------------------------------\n// Return one item\n// ---------------------------------------------\n\nreturn [\n  {\n    json: {\n      pubmed_review_total_count:\n        reviewTotalCount,\n\n      pubmed_trial_total_count:\n        trialTotalCount,\n\n      pubmed_review_ids:\n        reviewIds,\n\n      pubmed_trial_ids:\n        trialIds,\n\n      pubmed_review_retrieved:\n        reviewIds.length,\n\n      pubmed_trial_retrieved:\n        trialIds.length,\n\n      pubmed_duplicate_ids:\n        [...new Set(duplicates)],\n\n      pubmed_duplicate_count:\n        [...new Set(duplicates)].length,\n\n      pubmed_ids:\n        uniqueIds,\n\n      pubmed_id_string:\n        uniqueIds.join(','),\n\n      pubmed_count:\n        uniqueIds.length,\n\n      has_results:\n        uniqueIds.length > 0\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        160
+      ],
+      "id": "4158c9ca-cd8f-4e4b-affb-030d7ca64801",
+      "name": "Prepare PubMed IDs"
+    },
+    {
+      "parameters": {
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "id",
+              "value": "={{ $('Prepare PubMed IDs').first().json.pubmed_id_string }}"
+            },
+            {
+              "name": "rettype",
+              "value": "abstract"
+            },
+            {
+              "name": "retmode",
+              "value": "xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3136,
+        160
+      ],
+      "id": "eff13b7a-146d-4046-b9ed-eacd3df80ea1",
+      "name": "Get PubMed Abstracts"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        3360,
+        160
+      ],
+      "id": "30578f18-72df-4527-99d7-4dd648a2a4d1",
+      "name": "Parse PubMed XML"
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $('Prepare EMA Job').first().json;\n\nconst articles =\n  $json.PubmedArticleSet?.PubmedArticle ?? [];\n\nfunction asArray(value) {\n  if (value == null) return [];\n  return Array.isArray(value) ? value : [value];\n}\n\nfunction getText(value) {\n  if (value == null) return null;\n\n  if (\n    typeof value === 'string' ||\n    typeof value === 'number'\n  ) {\n    return String(value);\n  }\n\n  if (Array.isArray(value)) {\n    return value\n      .map(getText)\n      .filter(Boolean)\n      .join(' ');\n  }\n\n  if (\n    typeof value === 'object' &&\n    value._ != null\n  ) {\n    return getText(value._);\n  }\n\n  return null;\n}\n\nfunction getAbstract(article) {\n  const parts = asArray(\n    article?.Abstract?.AbstractText\n  );\n\n  const text = parts\n    .map(part => {\n      if (typeof part === 'string') {\n        return part;\n      }\n\n      const content = getText(part);\n      const label = part?.Label ?? null;\n\n      if (!content) return null;\n\n      return label\n        ? `${label}: ${content}`\n        : content;\n    })\n    .filter(Boolean);\n\n  return text.join('\\n\\n');\n}\n\nfunction getPublicationTypes(article) {\n  return asArray(\n    article?.PublicationTypeList?.PublicationType\n  )\n    .map(getText)\n    .filter(Boolean);\n}\n\nfunction getAuthors(article) {\n  return asArray(\n    article?.AuthorList?.Author\n  )\n    .map(author => {\n      const last = author?.LastName ?? '';\n      const fore = author?.ForeName ?? '';\n      const initials = author?.Initials ?? '';\n\n      const name =\n        [last, fore].filter(Boolean).join(', ') ||\n        [last, initials].filter(Boolean).join(' ');\n\n      return name || null;\n    })\n    .filter(Boolean);\n}\n\nfunction getArticleId(pubmedData, type) {\n  const ids = asArray(\n    pubmedData?.ArticleIdList?.ArticleId\n  );\n\n  const match = ids.find(\n    id => id?.IdType === type\n  );\n\n  return match ? getText(match) : null;\n}\n\nfunction getYear(citation) {\n  const article = citation?.Article ?? {};\n\n  return (\n    article?.ArticleDate?.Year ??\n    article?.Journal?.JournalIssue?.PubDate?.Year ??\n    citation?.DateCompleted?.Year ??\n    null\n  );\n}\n\nreturn articles.map(item => {\n  const citation =\n    item?.MedlineCitation ?? {};\n\n  const article =\n    citation?.Article ?? {};\n\n  const pubmedData =\n    item?.PubmedData ?? {};\n\n  const pmid =\n    getText(citation?.PMID);\n\n  const abstract =\n    getAbstract(article);\n\n  return {\n    json: {\n      queue_id: job.queue_id,\n      plant_id: job.plant_id,\n      scientific_name: job.scientific_name,\n      target_indication: job.target_indication,\n      indication_context: job.indication_context,\n\n      pmid,\n\n      title:\n        getText(article?.ArticleTitle),\n\n      abstract:\n        abstract || null,\n\n      year:\n        getYear(citation),\n\n      journal:\n        getText(\n          article?.Journal?.ISOAbbreviation\n        ) ??\n        getText(\n          article?.Journal?.Title\n        ),\n\n      publication_types:\n        getPublicationTypes(article),\n\n      authors:\n        getAuthors(article),\n\n      language:\n        asArray(article?.Language)\n          .map(getText)\n          .filter(Boolean),\n\n      doi:\n        getArticleId(\n          pubmedData,\n          'doi'\n        ),\n\n      pmc_id:\n        getArticleId(\n          pubmedData,\n          'pmc'\n        ),\n\n      pubmed_url:\n        pmid\n          ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`\n          : null,\n\n      has_abstract:\n        Boolean(\n          abstract &&\n          abstract.trim().length > 0\n        ),\n\n      abstract_characters:\n        abstract?.length ?? 0\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        160
+      ],
+      "id": "d9494812-bcf2-47c2-bbd6-037d9f7cdf3f",
+      "name": "Normalize PubMed Articles"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const screeningRules = [\n  'Use only the supplied title, abstract, publication types, and article metadata.',\n  'Do not use outside knowledge.',\n\n  'The target plant must be directly investigated or directly evaluated in the review.',\n\n  'Assess whether the clinical efficacy evidence can be specifically attributed to the target plant.',\n\n  'Set plant_specific_efficacy_evidence to true only when the clinical efficacy outcome can be specifically attributed to the target plant.',\n\n  'Set plant_specific_efficacy_evidence to false when the target plant is only one component of a fixed multi-herb combination and no plant-specific effect is reported.',\n\n  'Set plant_specific_efficacy_evidence to false when the target plant is pooled together with other drugs or treatments in one intervention group and no plant-specific result is reported.',\n\n  'Set plant_specific_efficacy_evidence to false when a review only lists or mentions the target plant among many interventions without a plant-specific clinical efficacy conclusion.',\n\n  'A separate treatment arm containing the target plant alone counts as plant-specific evidence.',\n\n  'A systematic review or meta-analysis counts as plant-specific evidence when it reports a clinical efficacy conclusion specifically for the target plant.',\n\n  'Assess how closely the investigated indication matches the target indication.',\n\n  'Do not exclude a clinically relevant paper only because disease severity differs from the target indication.',\n\n  'Use exact_match when the investigated indication and severity clearly match the target indication.',\n\n  'Use partial_overlap when the same clinical condition is investigated but the population, severity, stage, or diagnostic definition differs.',\n\n  'Use related when the study is clinically related but does not directly investigate the target condition.',\n\n  'Use unrelated when the investigated condition is not relevant to the target indication.',\n\n  'Include only human clinical efficacy evidence or systematic reviews/meta-analyses of human clinical efficacy evidence.',\n\n  'Exclude preclinical, animal, in-vitro, pharmacokinetic-only, mechanistic-only, safety-only, or interaction-only papers from efficacy evidence.',\n\n  'Exclude articles where the target plant is only mentioned incidentally.',\n\n  'Use uncertain when the abstract does not provide enough information for a confident decision.',\n\n  'The screening decision must not be interpreted as an efficacy assessment.',\n\n  'supporting_quote must be copied exactly from the supplied title or abstract.',\n\n  'The supporting quote should directly support the screening decision, indication relation, or plant-specific attribution.',\n\n  'If no exact supporting quote exists, use null.'\n];\n\nconst targetSchema = {\n  screening_decision: null,\n  indication_relation: null,\n  direct_plant_match: null,\n  plant_specific_efficacy_evidence: null,\n  human_clinical_evidence: null,\n  evidence_design: null,\n  reason: null,\n  supporting_quote: null\n};\n\nreturn {\n  json: {\n    ...$json,\n\n    screening_config: {\n      schema_version: 'phythera_pubmed_screen_v3',\n      rules: screeningRules,\n      target_schema: targetSchema\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        160
+      ],
+      "id": "89b91f1a-6f6b-4029-aa44-1c9128142702",
+      "name": "Define Evidence Screening Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are screening biomedical literature for PhyThera,\na professional medicinal-plant evidence mapping platform.\n\nTARGET PLANT:\n{{ $json.scientific_name }}\n\nTARGET INDICATION:\n{{ $json.target_indication }}\n\nPMID:\n{{ $json.pmid }}\n\nPUBLICATION TYPES:\n{{ JSON.stringify($json.publication_types) }}\n\nTITLE:\n{{ $json.title }}\n\nABSTRACT:\n{{ $json.abstract }}\n\nSCREENING RULES:\n- {{ $json.screening_config.rules.join('\\n- ') }}\n\nTARGET JSON STRUCTURE:\n{{ JSON.stringify($json.screening_config.target_schema, null, 2) }}\n\nAllowed screening_decision values:\n- include\n- exclude\n- uncertain\n\nAllowed indication_relation values:\n- exact_match\n- partial_overlap\n- related\n- unrelated\n- uncertain\n\nAllowed evidence_design values:\n- systematic_review_meta_analysis\n- systematic_review\n- randomized_controlled_trial\n- clinical_trial\n- other\n\nDECISION LOGIC:\n\nscreening_decision = include only when ALL of the following are true:\n- direct_plant_match = true\n- plant_specific_efficacy_evidence = true\n- human_clinical_evidence = true\n- indication_relation is exact_match or partial_overlap\n\nscreening_decision = exclude when ANY of the following apply:\n- direct_plant_match = false\n- plant_specific_efficacy_evidence = false\n- human_clinical_evidence = false\n- indication_relation = unrelated\n\nscreening_decision = uncertain when the abstract does not provide enough information to determine one or more essential criteria reliably.\n\nPLANT-SPECIFIC ATTRIBUTION:\n\nSet plant_specific_efficacy_evidence = true only when the reported clinical efficacy result can be specifically attributed to the target plant.\n\nExamples that ARE plant-specific:\n- The target plant is administered alone in its own intervention arm.\n- The target plant is directly compared with placebo or another treatment.\n- A systematic review or meta-analysis reports efficacy results specifically for the target plant.\n\nExamples that are NOT plant-specific:\n- The target plant is one ingredient in a fixed multi-herb combination and no separate effect is available.\n- The target plant is pooled with other drugs or treatments in a single intervention group.\n- A review merely lists the target plant among many interventions without reporting a plant-specific clinical efficacy conclusion.\n- The target plant is mentioned only in background information.\n\nINDICATION MATCHING:\n\n- exact_match:\n  The target condition and relevant severity clearly match.\n\n- partial_overlap:\n  The same clinical condition is studied, but severity, population, stage, or diagnostic definition differs.\n\n- related:\n  A clinically related condition is studied, but it is not the target condition itself.\n\n- unrelated:\n  The investigated condition is not relevant to the target indication.\n\nA difference in disease severity alone is NOT sufficient for exclusion.\n\nIMPORTANT:\n- Do not use outside knowledge.\n- Do not infer missing study details.\n- Do not infer efficacy from the screening decision.\n- Do not determine an Evidence Score.\n- Return valid JSON only.\n- Do not use Markdown.\n- Do not add keys.\n- direct_plant_match must be true or false.\n- plant_specific_efficacy_evidence must be true or false.\n- human_clinical_evidence must be true or false.\n- reason must be concise and factual.\n- supporting_quote must be one exact contiguous passage from TITLE or ABSTRACT.\n- Prefer a quote that directly supports plant-specific attribution and clinical relevance.\n- If no exact supporting quote exists, use null.\n\nReturn only the JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        4032,
+        160
+      ],
+      "id": "47e9608f-62ce-4fe0-91fc-4f57834e104d",
+      "name": "AI Evidence Relevance Screen"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        4112,
+        384
+      ],
+      "id": "c2c9d4d4-65ef-4d2b-9575-91dcfca14978",
+      "name": "OpenRouter Chat Model"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const article =\n  $('Define Evidence Screening Schema').item.json;\n\nconst rawOutput = $json.text ?? '';\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Clean model output\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return String(value ?? '')\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/, '')\n    .trim();\n}\n\n// --------------------------------------------------\n// 2. Parse JSON\n// --------------------------------------------------\n\nlet screening = null;\n\ntry {\n  screening = JSON.parse(\n    cleanJsonString(rawOutput)\n  );\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 3. Allowed values\n// --------------------------------------------------\n\nconst allowedDecisions = [\n  'include',\n  'exclude',\n  'uncertain'\n];\n\nconst allowedRelations = [\n  'exact_match',\n  'partial_overlap',\n  'related',\n  'unrelated',\n  'uncertain'\n];\n\nconst allowedDesigns = [\n  'systematic_review_meta_analysis',\n  'systematic_review',\n  'randomized_controlled_trial',\n  'clinical_trial',\n  'other'\n];\n\nconst expectedKeys = [\n  'screening_decision',\n  'indication_relation',\n  'direct_plant_match',\n  'plant_specific_efficacy_evidence',\n  'human_clinical_evidence',\n  'evidence_design',\n  'reason',\n  'supporting_quote'\n];\n\n// --------------------------------------------------\n// 4. Validate structure\n// --------------------------------------------------\n\nif (screening !== null) {\n\n  const actualKeys =\n    Object.keys(screening);\n\n  for (const key of expectedKeys) {\n    if (!(key in screening)) {\n      errors.push({\n        type: 'missing_key',\n        field: key\n      });\n    }\n  }\n\n  for (const key of actualKeys) {\n    if (!expectedKeys.includes(key)) {\n      warnings.push({\n        type: 'unexpected_key',\n        field: key\n      });\n    }\n  }\n\n  if (\n    !allowedDecisions.includes(\n      screening.screening_decision\n    )\n  ) {\n    errors.push({\n      type: 'invalid_screening_decision',\n      value: screening.screening_decision\n    });\n  }\n\n  if (\n    !allowedRelations.includes(\n      screening.indication_relation\n    )\n  ) {\n    errors.push({\n      type: 'invalid_indication_relation',\n      value: screening.indication_relation\n    });\n  }\n\n  if (\n    !allowedDesigns.includes(\n      screening.evidence_design\n    )\n  ) {\n    errors.push({\n      type: 'invalid_evidence_design',\n      value: screening.evidence_design\n    });\n  }\n\n  if (\n    typeof screening.direct_plant_match\n      !== 'boolean'\n  ) {\n    errors.push({\n      type: 'invalid_boolean',\n      field: 'direct_plant_match'\n    });\n  }\n\n  if (\n    typeof screening.plant_specific_efficacy_evidence\n      !== 'boolean'\n  ) {\n    errors.push({\n      type: 'invalid_boolean',\n      field: 'plant_specific_efficacy_evidence'\n    });\n  }\n\n  if (\n    typeof screening.human_clinical_evidence\n      !== 'boolean'\n  ) {\n    errors.push({\n      type: 'invalid_boolean',\n      field: 'human_clinical_evidence'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 5. Quote grounding\n// --------------------------------------------------\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n    .normalize('NFKC')\n    .replace(/\\u00AD/g, '')\n    .replace(/[“”]/g, '\"')\n    .replace(/[‘’]/g, \"'\")\n    .replace(/[‐-‒–—−]/g, '-')\n    .replace(/\\u00A0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .toLowerCase();\n}\n\nif (\n  screening !== null &&\n  typeof screening.supporting_quote\n    === 'string' &&\n  screening.supporting_quote.trim().length > 0\n) {\n\n  const sourceText = normalizeText(\n    [\n      article.title,\n      article.abstract\n    ]\n      .filter(Boolean)\n      .join('\\n')\n  );\n\n  const quote =\n    normalizeText(\n      screening.supporting_quote\n    );\n\n  if (!sourceText.includes(quote)) {\n    errors.push({\n      type: 'ungrounded_supporting_quote',\n      message:\n        'Supporting quote could not be found in title or abstract.'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 6. Logical consistency checks\n// --------------------------------------------------\n\nif (screening !== null) {\n\n  if (\n    screening.screening_decision === 'include' &&\n    screening.direct_plant_match !== true\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Included article must directly evaluate the target plant.'\n    });\n  }\n\n  if (\n    screening.screening_decision === 'include' &&\n    screening.plant_specific_efficacy_evidence !== true\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Included article must provide plant-specific clinical efficacy evidence.'\n    });\n  }\n\n  if (\n    screening.screening_decision === 'include' &&\n    screening.human_clinical_evidence !== true\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Included article must contain human clinical efficacy evidence.'\n    });\n  }\n\n  if (\n    screening.screening_decision === 'include' &&\n    ![\n      'exact_match',\n      'partial_overlap'\n    ].includes(\n      screening.indication_relation\n    )\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Included article must have exact_match or partial_overlap indication relation.'\n    });\n  }\n\n  if (\n    screening.screening_decision === 'exclude' &&\n    screening.direct_plant_match === true &&\n    screening.plant_specific_efficacy_evidence === true &&\n    screening.human_clinical_evidence === true &&\n    [\n      'exact_match',\n      'partial_overlap'\n    ].includes(\n      screening.indication_relation\n    )\n  ) {\n    warnings.push({\n      type: 'possible_over_exclusion',\n      message:\n        'Article appears to meet all inclusion criteria but was excluded.'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 7. Overall validation status\n// --------------------------------------------------\n\nlet validationStatus = 'pass';\n\nif (errors.length > 0) {\n  validationStatus = 'fail';\n} else if (warnings.length > 0) {\n  validationStatus = 'warning';\n}\n\n// --------------------------------------------------\n// 8. Return article + screening result\n// --------------------------------------------------\n\nreturn {\n  json: {\n    queue_id: article.queue_id,\n    plant_id: article.plant_id,\n    scientific_name:\n      article.scientific_name,\n\n    target_indication:\n      article.target_indication,\n\n    indication_context:\n      article.indication_context,\n\n    pmid:\n      article.pmid,\n\n    title:\n      article.title,\n\n    abstract:\n      article.abstract,\n\n    year:\n      article.year,\n\n    journal:\n      article.journal,\n\n    publication_types:\n      article.publication_types,\n\n    authors:\n      article.authors,\n\n    doi:\n      article.doi,\n\n    pubmed_url:\n      article.pubmed_url,\n\n    screening:\n      screening,\n\n    validation: {\n      status: validationStatus,\n      error_count: errors.length,\n      warning_count: warnings.length,\n      errors,\n      warnings\n    },\n\n    screening_schema_version:\n      'phythera_pubmed_screen_v3'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        160
+      ],
+      "id": "91e26d6b-5f1d-47c6-8462-5459b00f1348",
+      "name": "Parse & Validate Evidence Screen"
+    },
+    {
+      "parameters": {
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.pubmed_review_query }}"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "retmax",
+              "value": "10"
+            },
+            {
+              "name": "sort",
+              "value": "relevance"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2240,
+        64
+      ],
+      "id": "c0911382-b2e8-4769-8050-68a7dd894a4b",
+      "name": "Search PubMed Reviews"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2464,
+        160
+      ],
+      "id": "c57adf15-e9c4-4efe-b072-3d821f0ca169",
+      "name": "Merge PubMed Searches"
+    },
+    {
+      "parameters": {
+        "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "db",
+              "value": "pubmed"
+            },
+            {
+              "name": "term",
+              "value": "={{ $json.pubmed_trial_query }}"
+            },
+            {
+              "name": "retmode",
+              "value": "json"
+            },
+            {
+              "name": "retmax",
+              "value": "10"
+            },
+            {
+              "name": "sort",
+              "value": "relevance"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2240,
+        256
+      ],
+      "id": "83af8df1-ddc4-4ac7-96a3-42040c893a2e",
+      "name": "Search PubMed Trials"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "8c2c57fc-fe7f-4b3d-b634-562c85dd8226",
+              "leftValue": "={{ $json.validation.status }}",
+              "rightValue": "pass",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "c291a11a-40a9-49ac-bff5-a1d7591cb1fd",
+              "leftValue": "={{ $json.screening.screening_decision }}",
+              "rightValue": "include",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        4608,
+        160
+      ],
+      "id": "33c573a8-f297-47c0-81ab-07f973e8f003",
+      "name": "Keep Included Evidence"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const outcomeRules = [\n  'Use only the supplied title, abstract, publication types, and article metadata.',\n  'Do not use outside knowledge.',\n  'Do not infer information that is not explicitly stated in the abstract.',\n  'Do not calculate or derive missing numerical values.',\n  'Do not sum subgroup sizes to create a total sample size.',\n  'Extract only clinical efficacy information relevant to the target indication.',\n  'Do not convert screening relevance into an efficacy conclusion.',\n  'Preserve negative, neutral, mixed, and positive findings equally.',\n\n  'For randomized trials, describe the target plant intervention separately from comparator treatments.',\n\n  'For systematic reviews or meta-analyses, extract the review-level clinical conclusion rather than pretending the review is a single trial.',\n\n  'Capture named extracts or preparations exactly when stated, for example WS 5570, LI-160, or Calmigen.',\n\n  'If dose or duration is not explicitly reported, use null.',\n\n  'sample_size must only contain a total sample size explicitly stated in the supplied title or abstract.',\n\n  'If only subgroup sizes are reported and no total sample size is explicitly stated, use null.',\n\n  'Mark continuation or follow-up publications separately from primary acute-treatment reports.',\n\n  'If the abstract explicitly identifies an earlier or parent trial, capture that relationship.',\n\n  'Do not guess a parent trial PMID.',\n\n  'outcome_direction describes the direction of the reported clinical efficacy evidence, not study quality, heterogeneity, certainty, or risk of bias.',\n\n  'Use supportive when the reported results support efficacy of the target plant.',\n\n  'A result showing the target plant is superior to placebo counts as supportive.',\n\n  'A result showing the target plant has comparable or similar efficacy to an active established treatment counts as supportive, not mixed.',\n\n  'Non-inferiority or therapeutic equivalence to an active comparator counts as supportive when explicitly reported.',\n\n  'Use not_supportive when the reported results fail to support efficacy of the target plant, show no efficacy versus placebo, or favor the comparator over the target plant.',\n\n  'Use mixed only when efficacy findings themselves are materially conflicting, equivocal, or inconsistent within the article.',\n\n  'Do not use mixed merely because the target plant is superior to placebo but similar to an active comparator.',\n\n  'Do not use mixed merely because heterogeneity, limitations, or uncertainty are reported if the overall efficacy direction remains supportive.',\n\n  'Use unclear when the abstract does not allow a reliable efficacy direction.',\n\n  'supporting_quote must be copied exactly from the supplied title or abstract.',\n\n  'If no exact supporting quote exists, use null.',\n\n  'When placebo is a comparator, lack of a significant efficacy difference versus placebo must take precedence over similarity to an active comparator.',\n\n  'If the article explicitly describes the efficacy findings as equivocal and reports no significant between-treatment difference including placebo, use mixed.',\n\n  'Do not classify an article as supportive solely because the target plant is similar to an active comparator when placebo performs similarly as well.'\n];\n\nconst targetSchema = {\n  publication_role: null,\n  study_phase: null,\n\n  population: null,\n  sample_size: null,\n  indication_as_studied: null,\n\n  intervention: null,\n  preparation_or_extract: null,\n  dose_regimen: null,\n\n  comparator: null,\n  treatment_duration: null,\n\n  primary_efficacy_outcome: null,\n  effect_estimate: null,\n\n  outcome_direction: null,\n  efficacy_summary: null,\n\n  parent_trial_reference: null,\n\n  supporting_quote: null\n};\n\nreturn {\n  json: {\n    ...$json,\n\n    outcome_extraction_config: {\n      schema_version:\n        'phythera_pubmed_outcome_v3',\n\n      rules:\n        outcomeRules,\n\n      target_schema:\n        targetSchema\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4832,
+        160
+      ],
+      "id": "cb3cbcf9-e7f3-4157-b0ff-75f65454b699",
+      "name": "Define Outcome Extraction Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are extracting structured clinical evidence for PhyThera,\na professional medicinal-plant evidence mapping platform.\n\nUse ONLY the supplied article information.\nDo not use outside knowledge.\n\nTARGET PLANT:\n{{ $json.scientific_name }}\n\nTARGET INDICATION:\n{{ $json.target_indication }}\n\nPMID:\n{{ $json.pmid }}\n\nEVIDENCE DESIGN:\n{{ $json.screening.evidence_design }}\n\nINDICATION RELATION:\n{{ $json.screening.indication_relation }}\n\nPUBLICATION TYPES:\n{{ JSON.stringify($json.publication_types) }}\n\nTITLE:\n{{ $json.title }}\n\nABSTRACT:\n{{ $json.abstract }}\n\nEXTRACTION RULES:\n- {{ $json.outcome_extraction_config.rules.join('\\n- ') }}\n\nTARGET JSON STRUCTURE:\n{{ JSON.stringify($json.outcome_extraction_config.target_schema, null, 2) }}\n\nALLOWED VALUES:\n\npublication_role:\n- primary_trial_report\n- continuation_follow_up_report\n- systematic_review_meta_analysis\n- systematic_review\n- other\n\nstudy_phase:\n- acute_treatment\n- continuation\n- maintenance\n- follow_up\n- review_level\n- unclear\n\noutcome_direction:\n- supportive\n- not_supportive\n- mixed\n- unclear\n\nFIELD DEFINITIONS:\n\npublication_role:\nClassify what kind of publication this specific article is.\n\nUse primary_trial_report when this paper reports the main clinical trial results.\n\nUse continuation_follow_up_report when this paper reports continuation,\nmaintenance, extension, relapse-prevention, or follow-up results from an\nearlier or preceding treatment phase.\n\nUse systematic_review_meta_analysis for reviews that quantitatively pool\nclinical studies.\n\nUse systematic_review for systematic clinical reviews without a clearly\nreported quantitative meta-analysis.\n\nstudy_phase:\nFor primary clinical trials, classify the treatment phase.\n\nFor continuation or extension papers use continuation, maintenance,\nor follow_up as appropriate.\n\nFor reviews use review_level.\n\nIf unclear use unclear.\n\npopulation:\nBriefly describe the clinical population exactly as supported by the abstract.\n\nInclude relevant restrictions such as postmenopausal women when explicitly stated.\n\nsample_size:\nReturn a total sample size ONLY when the total number is explicitly stated\nin the supplied title or abstract.\n\nDo NOT calculate a total by adding treatment groups, subgroups, or study arms.\n\nExample:\nIf the abstract states:\n69 patients received treatment A,\n68 received treatment B,\n24 received placebo,\nbut never explicitly states a total sample size,\nreturn null.\n\nReturn a number only or null.\n\nindication_as_studied:\nDescribe the condition actually investigated in the study.\n\nDo not replace it with the PhyThera target indication.\n\nintervention:\nDescribe the target plant intervention.\n\npreparation_or_extract:\nCapture a named preparation, extract, or product exactly when stated,\nfor example WS 5570, LI-160, or Calmigen.\n\nOtherwise return null.\n\ndose_regimen:\nCapture dose and frequency when explicitly stated.\n\nOtherwise return null.\n\ncomparator:\nDescribe placebo, active comparator, usual care, or other comparison groups.\n\nFor reviews, summarize the main comparator types when stated.\n\ntreatment_duration:\nCapture only a treatment duration explicitly stated in the abstract.\n\nDo not calculate duration from dates or treatment phases.\n\nOtherwise return null.\n\nprimary_efficacy_outcome:\nIdentify the main clinically relevant efficacy outcome for the target indication.\n\nDo not use purely mechanistic, pharmacokinetic, or safety outcomes.\n\neffect_estimate:\nCapture the most informative numerical efficacy result explicitly reported.\n\nInclude effect measure and confidence interval where available.\n\nDo not calculate new statistics.\n\nIf no suitable numerical estimate is explicitly provided, return null.\n\noutcome_direction:\nClassify the DIRECTION OF CLINICAL EFFICACY RESULTS.\n\nThis field does NOT represent:\n- study quality\n- evidence certainty\n- heterogeneity\n- risk of bias\n- publication bias\n- safety\n- limitations\n\nsupportive:\nUse supportive when the reported clinical efficacy findings support the\ntarget plant.\n\nExamples:\n- target plant is superior to placebo\n- target plant improves the relevant clinical outcome\n- target plant has comparable efficacy to an established active treatment\n- target plant is reported as therapeutically equivalent or non-inferior\n  to an active comparator\n\nIMPORTANT:\nBeing superior to placebo AND similar to an active antidepressant is SUPPORTIVE,\nnot mixed.\n\nStudy heterogeneity or methodological limitations alone do NOT make an\notherwise supportive result mixed.\n\nnot_supportive:\nUse not_supportive when the efficacy findings fail to support the target plant.\n\nExamples:\n- no significant efficacy versus placebo\n- placebo performs similarly or better\n- the active comparator clearly outperforms the target plant\n- authors explicitly conclude that efficacy was not supported\n\nmixed:\nUse mixed only when the EFFICACY FINDINGS THEMSELVES are materially conflicting,\nequivocal, or inconsistent.\n\nExamples:\n- some clinically relevant efficacy outcomes support the plant while others do not\n- different treatment phases produce conflicting results\n- the article explicitly describes the efficacy result as equivocal\n\nDo NOT use mixed merely because:\n- the plant is superior to placebo but similar to an active comparator\n- study heterogeneity is reported\n- limitations are reported\n- evidence certainty is limited\n- more research is recommended\n\nunclear:\nUse unclear when the abstract does not contain enough information to determine\nthe efficacy direction reliably.\n\nefficacy_summary:\nWrite one concise factual sentence summarizing the reported efficacy findings.\n\nPreserve positive, negative, neutral, and equivocal findings faithfully.\n\nparent_trial_reference:\nUse this only for continuation, maintenance, extension, or follow-up publications.\n\nCapture an exact textual description of the earlier or parent trial when the\nabstract provides one.\n\nDo NOT invent a PMID, DOI, trial identifier, or citation.\n\nOtherwise return null.\n\nsupporting_quote:\nCopy one exact contiguous passage from TITLE or ABSTRACT that best supports\nthe efficacy conclusion and outcome_direction.\n\nDo not paraphrase the quote.\n\nIf no suitable exact quote exists, return null.\n\nOUTPUT RULES:\n- Return valid JSON only.\n- Do not use Markdown.\n- Do not add keys.\n- Do not calculate missing values.\n- Do not infer information not explicitly supported by the supplied article.\n- sample_size must be a number or null.\n- All other missing values must be null.\n- supporting_quote must be copied exactly from TITLE or ABSTRACT.\n\nReturn only the JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        5056,
+        160
+      ],
+      "id": "86305d09-8467-4982-9356-7ae25a928a99",
+      "name": "AI Outcome Extraction"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        5136,
+        384
+      ],
+      "id": "bcfa4314-b805-4850-a2cd-6819c692724c",
+      "name": "OpenRouter Chat Model1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const article =\n  $('Define Outcome Extraction Schema').item.json;\n\nconst rawOutput = $json.text ?? '';\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Clean model output\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return String(value ?? '')\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/, '')\n    .trim();\n}\n\n// --------------------------------------------------\n// 2. Parse JSON\n// --------------------------------------------------\n\nlet extraction = null;\n\ntry {\n  extraction = JSON.parse(\n    cleanJsonString(rawOutput)\n  );\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 3. Allowed values\n// --------------------------------------------------\n\nconst allowedPublicationRoles = [\n  'primary_trial_report',\n  'continuation_follow_up_report',\n  'systematic_review_meta_analysis',\n  'systematic_review',\n  'other'\n];\n\nconst allowedStudyPhases = [\n  'acute_treatment',\n  'continuation',\n  'maintenance',\n  'follow_up',\n  'review_level',\n  'unclear'\n];\n\nconst allowedOutcomeDirections = [\n  'supportive',\n  'not_supportive',\n  'mixed',\n  'unclear'\n];\n\nconst expectedKeys = [\n  'publication_role',\n  'study_phase',\n\n  'population',\n  'sample_size',\n  'indication_as_studied',\n\n  'intervention',\n  'preparation_or_extract',\n  'dose_regimen',\n\n  'comparator',\n  'treatment_duration',\n\n  'primary_efficacy_outcome',\n  'effect_estimate',\n\n  'outcome_direction',\n  'efficacy_summary',\n\n  'parent_trial_reference',\n\n  'supporting_quote'\n];\n\n// --------------------------------------------------\n// 4. Structure validation\n// --------------------------------------------------\n\nif (extraction !== null) {\n\n  const actualKeys =\n    Object.keys(extraction);\n\n  for (const key of expectedKeys) {\n    if (!(key in extraction)) {\n      errors.push({\n        type: 'missing_key',\n        field: key\n      });\n    }\n  }\n\n  for (const key of actualKeys) {\n    if (!expectedKeys.includes(key)) {\n      warnings.push({\n        type: 'unexpected_key',\n        field: key\n      });\n    }\n  }\n\n  if (\n    !allowedPublicationRoles.includes(\n      extraction.publication_role\n    )\n  ) {\n    errors.push({\n      type: 'invalid_publication_role',\n      value: extraction.publication_role\n    });\n  }\n\n  if (\n    !allowedStudyPhases.includes(\n      extraction.study_phase\n    )\n  ) {\n    errors.push({\n      type: 'invalid_study_phase',\n      value: extraction.study_phase\n    });\n  }\n\n  if (\n    !allowedOutcomeDirections.includes(\n      extraction.outcome_direction\n    )\n  ) {\n    errors.push({\n      type: 'invalid_outcome_direction',\n      value: extraction.outcome_direction\n    });\n  }\n\n  if (\n    extraction.sample_size !== null &&\n    (\n      typeof extraction.sample_size !== 'number' ||\n      !Number.isFinite(extraction.sample_size) ||\n      extraction.sample_size <= 0\n    )\n  ) {\n    errors.push({\n      type: 'invalid_sample_size',\n      value: extraction.sample_size\n    });\n  }\n}\n\n// --------------------------------------------------\n// 5. Text normalization for quote grounding\n// --------------------------------------------------\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n    .normalize('NFKC')\n    .replace(/\\u00AD/g, '')\n    .replace(/[“”]/g, '\"')\n    .replace(/[‘’]/g, \"'\")\n    .replace(/[‐-‒–—−]/g, '-')\n    .replace(/\\u00A0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .toLowerCase();\n}\n\n// --------------------------------------------------\n// 6. Validate supporting quote\n// --------------------------------------------------\n\nif (\n  extraction !== null &&\n  typeof extraction.supporting_quote === 'string' &&\n  extraction.supporting_quote.trim().length > 0\n) {\n\n  const sourceText =\n    normalizeText(\n      [\n        article.title,\n        article.abstract\n      ]\n        .filter(Boolean)\n        .join('\\n')\n    );\n\n  const quote =\n    normalizeText(\n      extraction.supporting_quote\n    );\n\n  if (!sourceText.includes(quote)) {\n    errors.push({\n      type: 'ungrounded_supporting_quote',\n      message:\n        'Supporting quote could not be found in title or abstract.'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 7. Logical consistency\n// --------------------------------------------------\n\nif (extraction !== null) {\n\n  const reviewRoles = [\n    'systematic_review_meta_analysis',\n    'systematic_review'\n  ];\n\n  const continuationPhases = [\n    'continuation',\n    'maintenance',\n    'follow_up'\n  ];\n\n  // Reviews should be review-level\n  if (\n    reviewRoles.includes(\n      extraction.publication_role\n    ) &&\n    extraction.study_phase !== 'review_level'\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Systematic reviews must use study_phase = review_level.'\n    });\n  }\n\n  // Review-level phase should belong to a review\n  if (\n    extraction.study_phase === 'review_level' &&\n    !reviewRoles.includes(\n      extraction.publication_role\n    )\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'study_phase = review_level requires a systematic review publication role.'\n    });\n  }\n\n  // Continuation publications need an appropriate phase\n  if (\n    extraction.publication_role ===\n      'continuation_follow_up_report' &&\n    !continuationPhases.includes(\n      extraction.study_phase\n    )\n  ) {\n    errors.push({\n      type: 'logic_error',\n      message:\n        'Continuation/follow-up publications must use continuation, maintenance, or follow_up study phase.'\n    });\n  }\n\n  // Parent reference should normally only appear for continuation reports\n  if (\n    extraction.parent_trial_reference !== null &&\n    extraction.publication_role !==\n      'continuation_follow_up_report'\n  ) {\n    warnings.push({\n      type: 'unexpected_parent_trial_reference',\n      message:\n        'Parent trial reference is present for a publication not classified as continuation/follow-up.'\n    });\n  }\n\n  // Continuation publication without identifiable parent context\n  if (\n    extraction.publication_role ===\n      'continuation_follow_up_report' &&\n    extraction.parent_trial_reference === null\n  ) {\n    warnings.push({\n      type: 'missing_parent_trial_reference',\n      message:\n        'Continuation/follow-up publication has no parent trial reference in the abstract.'\n    });\n  }\n\n  // Efficacy summary should be present\n  if (\n    typeof extraction.efficacy_summary !== 'string' ||\n    extraction.efficacy_summary.trim().length === 0\n  ) {\n    errors.push({\n      type: 'missing_efficacy_summary'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 8. Validation status\n// --------------------------------------------------\n\nlet validationStatus = 'pass';\n\nif (errors.length > 0) {\n  validationStatus = 'fail';\n} else if (warnings.length > 0) {\n  validationStatus = 'warning';\n}\n\n// --------------------------------------------------\n// 9. Return article + extraction\n// --------------------------------------------------\n\nreturn {\n  json: {\n    queue_id:\n      article.queue_id,\n\n    plant_id:\n      article.plant_id,\n\n    scientific_name:\n      article.scientific_name,\n\n    target_indication:\n      article.target_indication,\n\n    indication_context:\n      article.indication_context,\n\n    pmid:\n      article.pmid,\n\n    title:\n      article.title,\n\n    year:\n      article.year,\n\n    journal:\n      article.journal,\n\n    doi:\n      article.doi,\n\n    pubmed_url:\n      article.pubmed_url,\n\n    screening:\n      article.screening,\n\n    outcome_extraction:\n      extraction,\n\n    validation: {\n      status:\n        validationStatus,\n\n      error_count:\n        errors.length,\n\n      warning_count:\n        warnings.length,\n\n      errors,\n      warnings\n    },\n\n    outcome_schema_version:\n      'phythera_pubmed_outcome_v3'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5408,
+        160
+      ],
+      "id": "4d4a1f4c-48f6-4cd3-a541-12130ed4f152",
+      "name": "Parse & Validate Outcome Extraction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfunction norm(value) {\n  return String(value ?? '')\n    .toLowerCase()\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction hasTerm(value, term) {\n  return norm(value).includes(norm(term));\n}\n\nfunction getCochraneFamily(doi) {\n  if (!doi) return null;\n\n  const match =\n    String(doi).match(/CD\\d+/i);\n\n  if (!match) return null;\n\n  return `review:cochrane:${match[0].toUpperCase()}`;\n}\n\n// --------------------------------------------------\n// 1. Find primary clinical trial reports\n// --------------------------------------------------\n\nconst primaryTrials = items.filter(item =>\n  item.json.outcome_extraction?.publication_role ===\n  'primary_trial_report'\n);\n\n// --------------------------------------------------\n// 2. Process each evidence record\n// --------------------------------------------------\n\nreturn items.map(item => {\n  const record = item.json;\n  const outcome =\n    record.outcome_extraction ?? {};\n\n  const role =\n    outcome.publication_role;\n\n  let evidence_family_type = null;\n  let evidence_family_id = null;\n  let publication_relationship = null;\n  let score_eligible = true;\n  let score_exclusion_reason = null;\n  let linked_parent_pmid = null;\n\n  // ==================================================\n  // REVIEWS\n  // ==================================================\n\n  if (\n    role === 'systematic_review' ||\n    role === 'systematic_review_meta_analysis'\n  ) {\n    evidence_family_type = 'review';\n\n    const cochraneFamily =\n      getCochraneFamily(record.doi);\n\n    if (cochraneFamily) {\n      evidence_family_id =\n        cochraneFamily;\n\n      publication_relationship =\n        'review_family_member';\n    } else {\n      evidence_family_id =\n        `review:pmid:${record.pmid}`;\n\n      publication_relationship =\n        'independent_review';\n    }\n  }\n\n  // ==================================================\n  // PRIMARY TRIAL\n  // ==================================================\n\n  else if (\n    role === 'primary_trial_report'\n  ) {\n    evidence_family_type = 'trial';\n\n    evidence_family_id =\n      `trial:pmid:${record.pmid}`;\n\n    publication_relationship =\n      'primary';\n  }\n\n  // ==================================================\n  // CONTINUATION / FOLLOW-UP\n  // ==================================================\n\n  else if (\n    role ===\n    'continuation_follow_up_report'\n  ) {\n    evidence_family_type = 'trial';\n\n    const preparation =\n      norm(outcome.preparation_or_extract);\n\n    const comparator =\n      norm(outcome.comparator);\n\n    const indication =\n      norm(outcome.indication_as_studied);\n\n    // Find possible parent trial\n    const candidates =\n      primaryTrials.filter(candidate => {\n        const c =\n          candidate.json.outcome_extraction ?? {};\n\n        const samePreparation =\n          preparation &&\n          norm(c.preparation_or_extract) ===\n            preparation;\n\n        const candidateComparator =\n          norm(c.comparator);\n\n        const comparatorOverlap =\n          comparator &&\n          candidateComparator &&\n          (\n            (\n              hasTerm(comparator, 'placebo') &&\n              hasTerm(candidateComparator, 'placebo')\n            )\n            ||\n            (\n              hasTerm(comparator, 'sertraline') &&\n              hasTerm(candidateComparator, 'sertraline')\n            )\n          );\n\n        const candidateIndication =\n          norm(c.indication_as_studied);\n\n        const indicationOverlap =\n          indication &&\n          candidateIndication &&\n          (\n            indication.includes(candidateIndication) ||\n            candidateIndication.includes(indication) ||\n            (\n              indication.includes('major depress') &&\n              candidateIndication.includes('major depress')\n            )\n          );\n\n        return (\n          samePreparation &&\n          comparatorOverlap &&\n          indicationOverlap\n        );\n      });\n\n    // Exactly one plausible parent\n    if (candidates.length === 1) {\n      const parent =\n        candidates[0].json;\n\n      linked_parent_pmid =\n        parent.pmid;\n\n      evidence_family_id =\n        `trial:pmid:${parent.pmid}`;\n\n      publication_relationship =\n        'continuation_of_primary';\n\n      // Do not count publication twice\n      score_eligible = false;\n\n      score_exclusion_reason =\n        'continuation_publication_parent_present';\n    }\n\n    // No parent in current retrieval\n    else {\n      evidence_family_id =\n        `trial:pmid:${record.pmid}`;\n\n      publication_relationship =\n        'continuation_parent_not_retrieved';\n\n      // Keep eligible for now because otherwise\n      // the entire clinical evidence family would disappear.\n      score_eligible = true;\n    }\n  }\n\n  // ==================================================\n  // OTHER\n  // ==================================================\n\n  else {\n    evidence_family_type =\n      'other';\n\n    evidence_family_id =\n      `other:pmid:${record.pmid}`;\n\n    publication_relationship =\n      'independent';\n  }\n\n  return {\n    json: {\n      ...record,\n\n      evidence_family: {\n        family_type:\n          evidence_family_type,\n\n        family_id:\n          evidence_family_id,\n\n        publication_relationship,\n\n        linked_parent_pmid,\n\n        score_eligible,\n\n        score_exclusion_reason\n      },\n\n      evidence_family_schema_version:\n        'phythera_evidence_family_v1'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5632,
+        160
+      ],
+      "id": "67acbbda-e531-42b0-8700-ddfb9c369eeb",
+      "name": "Assign Evidence Families"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Group records by evidence family\nconst families = new Map();\n\nfor (const item of items) {\n  const familyId =\n    item.json.evidence_family?.family_id ??\n    `fallback:${item.json.pmid}`;\n\n  if (!families.has(familyId)) {\n    families.set(familyId, []);\n  }\n\n  families.get(familyId).push(item);\n}\n\nfunction yearValue(item) {\n  const year = Number(item.json.year);\n  return Number.isFinite(year) ? year : 0;\n}\n\nfunction rolePriority(item) {\n  const role =\n    item.json.outcome_extraction?.publication_role;\n\n  if (role === 'primary_trial_report') {\n    return 4;\n  }\n\n  if (\n    role ===\n    'systematic_review_meta_analysis'\n  ) {\n    return 3;\n  }\n\n  if (role === 'systematic_review') {\n    return 2;\n  }\n\n  if (\n    role ===\n    'continuation_follow_up_report'\n  ) {\n    return 1;\n  }\n\n  return 0;\n}\n\nconst result = [];\n\nfor (const [familyId, members] of families.entries()) {\n\n  const familyType =\n    members[0].json.evidence_family?.family_type;\n\n  let representative;\n\n  // -----------------------------------------\n  // TRIAL FAMILY\n  // Prefer primary publication.\n  // If unavailable, use newest continuation.\n  // -----------------------------------------\n\n  if (familyType === 'trial') {\n\n    const primary =\n      members.find(\n        item =>\n          item.json.outcome_extraction\n            ?.publication_role ===\n          'primary_trial_report'\n      );\n\n    if (primary) {\n      representative = primary;\n    } else {\n      representative =\n        [...members].sort(\n          (a, b) =>\n            yearValue(b) -\n            yearValue(a)\n        )[0];\n    }\n  }\n\n  // -----------------------------------------\n  // REVIEW FAMILY\n  // Prefer newest update.\n  // If same year, prefer meta-analysis.\n  // -----------------------------------------\n\n  else if (familyType === 'review') {\n\n    representative =\n      [...members].sort((a, b) => {\n\n        const yearDifference =\n          yearValue(b) -\n          yearValue(a);\n\n        if (yearDifference !== 0) {\n          return yearDifference;\n        }\n\n        return (\n          rolePriority(b) -\n          rolePriority(a)\n        );\n      })[0];\n  }\n\n  // -----------------------------------------\n  // OTHER\n  // -----------------------------------------\n\n  else {\n    representative =\n      [...members].sort(\n        (a, b) =>\n          yearValue(b) -\n          yearValue(a)\n      )[0];\n  }\n\n  // -----------------------------------------\n  // Annotate every publication\n  // -----------------------------------------\n\n  for (const item of members) {\n\n    const isRepresentative =\n      item === representative;\n\n    const existing =\n      item.json.evidence_family ?? {};\n\n    let scoreEligible =\n      existing.score_eligible === true &&\n      isRepresentative;\n\n    let exclusionReason =\n      existing.score_exclusion_reason;\n\n    if (\n      !isRepresentative &&\n      !exclusionReason\n    ) {\n      exclusionReason =\n        'non_representative_family_publication';\n    }\n\n    result.push({\n      json: {\n        ...item.json,\n\n        evidence_family: {\n          ...existing,\n\n          family_representative:\n            isRepresentative,\n\n          score_eligible:\n            scoreEligible,\n\n          score_exclusion_reason:\n            scoreEligible\n              ? null\n              : exclusionReason\n        },\n\n        evidence_family_selection_version:\n          'phythera_family_selection_v1'\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5856,
+        160
+      ],
+      "id": "a90f73d3-c850-42b3-959e-a13116b29fbd",
+      "name": "Select Family Representatives"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// --------------------------------------------------\n// CONFIGURATION\n// --------------------------------------------------\n\n// Direction of clinical efficacy evidence.\n// This is NOT an efficacy probability.\nconst directionScores = {\n  supportive: 1.0,\n  mixed: 0.5,\n  not_supportive: 0.0,\n  unclear: null\n};\n\n// How closely the investigated indication\n// matches the PhyThera target indication.\nconst indicationWeights = {\n  exact_match: 1.0,\n  partial_overlap: 0.85,\n  related: 0.50,\n  unrelated: 0.0\n};\n\n// Relative weights WITHIN the review layer.\nconst reviewWeights = {\n  systematic_review_meta_analysis: 1.0,\n  systematic_review: 0.9\n};\n\n// Relative weights WITHIN the trial layer.\n//\n// A continuation publication whose parent trial\n// is not available is retained, but receives\n// less weight than a primary trial report.\nconst trialWeights = {\n  primary_trial_report: 1.0,\n  continuation_follow_up_report: 0.7\n};\n\n// Fixed combination of evidence layers.\n//\n// Reviews are weighted slightly more strongly\n// because they synthesize multiple clinical trials.\n//\n// Importantly, publication COUNT does not determine\n// the review-vs-trial balance.\nconst REVIEW_LAYER_WEIGHT = 0.60;\nconst TRIAL_LAYER_WEIGHT = 0.40;\n\n\n// --------------------------------------------------\n// HELPERS\n// --------------------------------------------------\n\nfunction weightedMean(records) {\n  if (!records.length) {\n    return null;\n  }\n\n  let numerator = 0;\n  let denominator = 0;\n\n  for (const record of records) {\n    numerator +=\n      record.family_score *\n      record.evidence_weight;\n\n    denominator +=\n      record.evidence_weight;\n  }\n\n  if (denominator === 0) {\n    return null;\n  }\n\n  return numerator / denominator;\n}\n\nfunction round(value, digits = 3) {\n  if (value === null || value === undefined) {\n    return null;\n  }\n\n  const factor = 10 ** digits;\n\n  return (\n    Math.round(value * factor) /\n    factor\n  );\n}\n\n\n// --------------------------------------------------\n// SELECT SCORE-ELIGIBLE FAMILY REPRESENTATIVES\n// --------------------------------------------------\n\nconst eligible = items.filter(item => {\n\n  const record = item.json;\n\n  return (\n    record.validation?.status === 'pass' &&\n    record.evidence_family\n      ?.family_representative === true &&\n    record.evidence_family\n      ?.score_eligible === true\n  );\n});\n\n\n// --------------------------------------------------\n// CALCULATE FAMILY-LEVEL CONTRIBUTIONS\n// --------------------------------------------------\n\nconst familyContributions = [];\n\nfor (const item of eligible) {\n\n  const record = item.json;\n\n  const family =\n    record.evidence_family ?? {};\n\n  const outcome =\n    record.outcome_extraction ?? {};\n\n  const screening =\n    record.screening ?? {};\n\n  const direction =\n    outcome.outcome_direction;\n\n  const relation =\n    screening.indication_relation;\n\n  const directionScore =\n    directionScores[direction];\n\n  const indicationWeight =\n    indicationWeights[relation] ?? 0;\n\n  // Ignore unclear efficacy direction\n  // rather than treating it as negative evidence.\n  if (\n    directionScore === null ||\n    directionScore === undefined\n  ) {\n    continue;\n  }\n\n  const familyScore =\n    directionScore *\n    indicationWeight;\n\n  let evidenceWeight = 1.0;\n\n  if (family.family_type === 'review') {\n\n    evidenceWeight =\n      reviewWeights[\n        screening.evidence_design\n      ] ?? 0.8;\n\n  } else if (\n    family.family_type === 'trial'\n  ) {\n\n    evidenceWeight =\n      trialWeights[\n        outcome.publication_role\n      ] ?? 0.7;\n  }\n\n  familyContributions.push({\n    pmid:\n      record.pmid,\n\n    family_id:\n      family.family_id,\n\n    family_type:\n      family.family_type,\n\n    publication_role:\n      outcome.publication_role,\n\n    evidence_design:\n      screening.evidence_design,\n\n    indication_relation:\n      relation,\n\n    outcome_direction:\n      direction,\n\n    direction_score:\n      directionScore,\n\n    indication_weight:\n      indicationWeight,\n\n    evidence_weight:\n      evidenceWeight,\n\n    family_score:\n      round(familyScore)\n  });\n}\n\n\n// --------------------------------------------------\n// SPLIT INTO REVIEW AND TRIAL LAYERS\n// --------------------------------------------------\n\nconst reviewFamilies =\n  familyContributions.filter(\n    record =>\n      record.family_type === 'review'\n  );\n\nconst trialFamilies =\n  familyContributions.filter(\n    record =>\n      record.family_type === 'trial'\n  );\n\nconst reviewScore =\n  weightedMean(reviewFamilies);\n\nconst trialScore =\n  weightedMean(trialFamilies);\n\n\n// --------------------------------------------------\n// COMBINE LAYERS\n// --------------------------------------------------\n\nlet modernEvidenceScore = null;\nlet appliedReviewWeight = 0;\nlet appliedTrialWeight = 0;\n\nif (\n  reviewScore !== null &&\n  trialScore !== null\n) {\n\n  modernEvidenceScore =\n    reviewScore *\n      REVIEW_LAYER_WEIGHT +\n    trialScore *\n      TRIAL_LAYER_WEIGHT;\n\n  appliedReviewWeight =\n    REVIEW_LAYER_WEIGHT;\n\n  appliedTrialWeight =\n    TRIAL_LAYER_WEIGHT;\n\n} else if (reviewScore !== null) {\n\n  modernEvidenceScore =\n    reviewScore;\n\n  appliedReviewWeight = 1.0;\n\n} else if (trialScore !== null) {\n\n  modernEvidenceScore =\n    trialScore;\n\n  appliedTrialWeight = 1.0;\n}\n\n\n// --------------------------------------------------\n// SUMMARY COUNTS\n// --------------------------------------------------\n\nconst excludedPublications =\n  items.filter(\n    item =>\n      item.json.evidence_family\n        ?.score_eligible !== true\n  );\n\nconst supportiveCount =\n  familyContributions.filter(\n    x =>\n      x.outcome_direction ===\n      'supportive'\n  ).length;\n\nconst mixedCount =\n  familyContributions.filter(\n    x =>\n      x.outcome_direction ===\n      'mixed'\n  ).length;\n\nconst notSupportiveCount =\n  familyContributions.filter(\n    x =>\n      x.outcome_direction ===\n      'not_supportive'\n  ).length;\n\n\n// --------------------------------------------------\n// OUTPUT ONE MODERN-EVIDENCE PROFILE\n// --------------------------------------------------\n\nconst first =\n  items[0]?.json ?? {};\n\nconst indication =\n  $('Lookup PubMed Indication')\n    .first()\n    .json;\n\nreturn [\n  {\n    json: {\n      queue_id:\n        first.queue_id,\n\n      plant_id:\n        first.plant_id,\n\n      indication_id:\n        indication.id,\n\n      scientific_name:\n        first.scientific_name,\n\n      target_indication:\n        first.target_indication,\n\n      indication_context:\n        first.indication_context,\n\n      modern_evidence: {\n\n        score:\n          round(modernEvidenceScore),\n\n        score_100:\n          modernEvidenceScore === null\n            ? null\n            : round(\n                modernEvidenceScore * 100,\n                1\n              ),\n\n        review_layer_score:\n          round(reviewScore),\n\n        trial_layer_score:\n          round(trialScore),\n\n        review_layer_weight:\n          appliedReviewWeight,\n\n        trial_layer_weight:\n          appliedTrialWeight,\n\n        eligible_family_count:\n          familyContributions.length,\n\n        review_family_count:\n          reviewFamilies.length,\n\n        trial_family_count:\n          trialFamilies.length,\n\n        supportive_family_count:\n          supportiveCount,\n\n        mixed_family_count:\n          mixedCount,\n\n        not_supportive_family_count:\n          notSupportiveCount,\n\n        excluded_publication_count:\n          excludedPublications.length,\n\n        family_contributions:\n          familyContributions\n      },\n\n      modern_evidence_score_version:\n        'phythera_modern_evidence_v2'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6080,
+        160
+      ],
+      "id": "1794eec0-3c2b-45c2-bc0b-01a537f19728",
+      "name": "Calculate Modern Evidence Score"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Prepare Modern Evidence DB Update\n//\n// Input:\n//   Calculate Modern Evidence Score\n//\n// Purpose:\n//   Prepare the deterministic Modern Evidence Score\n//   for writing back to Supabase:\n//\n//   plant_indication_profiles.modern_evidence_score\n//\n// IMPORTANT:\n//   Database score scale = 0–1\n//   UI can display score × 100\n// ============================================================\n\nconst items = $input.all();\n\nconst output = [];\n\nfor (const item of items) {\n  const data = item.json;\n\n  const plantId = data.plant_id;\n  const indicationId = data.indication_id;\n\n  const modernEvidenceScore =\n    data.modern_evidence?.score ?? null;\n\n  const modernEvidenceScore100 =\n    data.modern_evidence?.score_100 ?? null;\n\n\n  // ==========================================================\n  // Validation\n  // ==========================================================\n\n  if (!plantId) {\n    throw new Error(\n      \"Prepare Modern Evidence DB Update: plant_id is missing.\"\n    );\n  }\n\n  if (!indicationId) {\n    throw new Error(\n      \"Prepare Modern Evidence DB Update: indication_id is missing.\"\n    );\n  }\n\n  if (\n    modernEvidenceScore !== null &&\n    (\n      typeof modernEvidenceScore !== \"number\" ||\n      Number.isNaN(modernEvidenceScore) ||\n      modernEvidenceScore < 0 ||\n      modernEvidenceScore > 1\n    )\n  ) {\n    throw new Error(\n      `Invalid modern_evidence.score for plant_id ${plantId}, indication_id ${indicationId}: ${modernEvidenceScore}`\n    );\n  }\n\n\n  // ==========================================================\n  // Output\n  // ==========================================================\n\n  output.push({\n    json: {\n\n      // --------------------------------------------------------\n      // Keys for identifying plant_indication_profiles row\n      // --------------------------------------------------------\n\n      plant_id: plantId,\n      indication_id: indicationId,\n\n\n      // --------------------------------------------------------\n      // Main DB value\n      // --------------------------------------------------------\n\n      modern_evidence_score:\n        modernEvidenceScore,\n\n\n      // --------------------------------------------------------\n      // Keep useful workflow context\n      // --------------------------------------------------------\n\n      queue_id:\n        data.queue_id ?? null,\n\n      scientific_name:\n        data.scientific_name ?? null,\n\n      target_indication:\n        data.target_indication ?? null,\n\n      indication_context:\n        data.indication_context ?? null,\n\n\n      // --------------------------------------------------------\n      // Diagnostic / audit information\n      // Not required for plant_indication_profiles update,\n      // but kept for downstream workflow nodes.\n      // --------------------------------------------------------\n\n      modern_evidence_score_100:\n        modernEvidenceScore100,\n\n      modern_evidence_score_version:\n        data.modern_evidence_score_version ??\n        \"phythera_modern_evidence_v2\",\n\n      modern_evidence:\n        data.modern_evidence ?? null\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6304,
+        160
+      ],
+      "id": "93e0a9e2-f86c-41a0-9e93-55ef2d7134a6",
+      "name": "Prepare Modern Evidence DB Update"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "modern_evidence_score",
+              "fieldValue": "={{ $('Prepare Modern Evidence DB Update').item.json.modern_evidence_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        6976,
+        64
+      ],
+      "id": "b8a1a85a-dd56-40bd-88bb-68ca03fde7f5",
+      "name": "Update plant_indication_profiles"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "plant_indication_profiles",
+        "limit": 1,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        6528,
+        160
+      ],
+      "id": "3979ac92-e6ad-45b2-9011-6afc5e748de9",
+      "name": "Find existing plant_indication_profile",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "a1cc1dab-d4fe-4094-8984-9ab40486a0a4",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "Exists",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        6752,
+        160
+      ],
+      "id": "c28aec4b-dd92-441f-9d07-538597911a8e",
+      "name": "Profile exists?"
+    },
+    {
+      "parameters": {
+        "tableId": "plant_indication_profiles",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "plant_id",
+              "fieldValue": "={{ $('Prepare Modern Evidence DB Update').item.json.plant_id }}"
+            },
+            {
+              "fieldId": "indication_id",
+              "fieldValue": "={{ $('Prepare Modern Evidence DB Update').item.json.indication_id }}"
+            },
+            {
+              "fieldId": "modern_evidence_score",
+              "fieldValue": "={{ $('Prepare Modern Evidence DB Update').item.json.modern_evidence_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        6976,
+        256
+      ],
+      "id": "e494572b-961a-4f71-a87e-e4815ad5f642",
+      "name": "Create plant_indication_profile"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "extraction_runs",
+        "returnAll": true,
+        "orderBy": "created_at.desc",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            },
+            {
+              "keyName": "pipeline",
+              "condition": "eq",
+              "keyValue": "PhyThera EMA Extraction"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        7424,
+        64
+      ],
+      "id": "8411c96d-3ae6-4e55-83b8-ce2f9c5f6d67",
+      "name": "Get EMA Extraction for Traditional Score"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Calculate Traditional Support Score\n// Version: phythera_traditional_support_v2\n//\n// EMA/HMPC regulatory / traditional support:\n//\n// Well-established use  -> 1.00\n// Traditional use       -> 0.75\n// Documented medicinal use only -> 0.50\n// No documented support -> 0.00\n//\n// Missing / unusable EMA extraction -> null\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helpers\n// ============================================================\n\nfunction parseProfile(value) {\n\n  if (!value) {\n    return {};\n  }\n\n  if (typeof value === 'object') {\n    return value;\n  }\n\n  if (typeof value === 'string') {\n\n    try {\n      return JSON.parse(value);\n    } catch {\n      return {};\n    }\n  }\n\n  return {};\n}\n\n\nfunction normalize(value) {\n\n  if (\n    value === null ||\n    value === undefined\n  ) {\n    return '';\n  }\n\n  return String(value)\n    .trim()\n    .toLowerCase();\n}\n\n\n// ============================================================\n// Detect explicitly negative statements\n// ============================================================\n\nfunction isNegativeStatement(value) {\n\n  const text =\n    normalize(value);\n\n  if (!text) {\n    return false;\n  }\n\n  const negativePatterns = [\n\n    'not supported',\n    'not established',\n    'not fulfilled',\n    'requirements not fulfilled',\n\n    'insufficient',\n    'unsupported',\n\n    'no evidence',\n    'no clinical evidence',\n    'no clinical data',\n\n    'does not support',\n    'cannot support',\n\n    'not acceptable',\n\n    'no well-established',\n    'well-established use is not supported'\n  ];\n\n  return negativePatterns.some(\n    pattern =>\n      text.includes(pattern)\n  );\n}\n\n\n// ============================================================\n// Traditional-use signal\n// ============================================================\n\nfunction isTraditionalUseSignal(value) {\n\n  const text =\n    normalize(value);\n\n  if (!text) {\n    return false;\n  }\n\n  if (isNegativeStatement(text)) {\n    return false;\n  }\n\n  return (\n    text === 'traditional' ||\n    text === 'traditional use' ||\n\n    text.includes(\n      'traditional use'\n    ) ||\n\n    text.includes(\n      'traditional medicinal'\n    ) ||\n\n    (\n      text.includes('traditional') &&\n      text.includes('fulfilled')\n    )\n  );\n}\n\n\n// ============================================================\n// Well-established-use signal\n// ============================================================\n\nfunction isWellEstablishedSignal(value) {\n\n  const text =\n    normalize(value);\n\n  if (!text) {\n    return false;\n  }\n\n  if (isNegativeStatement(text)) {\n    return false;\n  }\n\n  return (\n    text === 'well-established' ||\n    text === 'well established' ||\n\n    text.includes(\n      'well-established use'\n    ) ||\n\n    text.includes(\n      'well established use'\n    ) ||\n\n    (\n      (\n        text.includes('well-established') ||\n        text.includes('well established')\n      ) &&\n      text.includes('fulfilled')\n    )\n  );\n}\n\n\n// ============================================================\n// Collect EMA extraction runs\n// ============================================================\n\nconst runs = items\n  .map(item => {\n\n    const row =\n      item.json;\n\n    const profile =\n      parseProfile(\n        row.profile_json\n      );\n\n    return {\n      row,\n      profile\n    };\n  })\n\n  .filter(({ row }) =>\n    row.pipeline ===\n      'PhyThera EMA Extraction'\n  )\n\n  .sort((a, b) => {\n\n    const dateA =\n      new Date(\n        a.row.created_at ?? 0\n      );\n\n    const dateB =\n      new Date(\n        b.row.created_at ?? 0\n      );\n\n    return dateB - dateA;\n  });\n\n\n// ============================================================\n// Find newest usable EMA extraction\n// ============================================================\n\nlet selected = null;\n\nfor (const run of runs) {\n\n  const validationStatus =\n    normalize(\n      run.row.validation_status\n    );\n\n  if (\n    validationStatus !== 'pass' &&\n    validationStatus !== 'warning'\n  ) {\n    continue;\n  }\n\n\n  const medicinalUseTaskStatus =\n    normalize(\n      run.profile\n        ?.validation_summary\n        ?.task_status\n        ?.medicinal_use\n    );\n\n\n  // Overall extraction may contain a warning from another task.\n  // Medicinal-use extraction itself must not have failed.\n  if (\n    medicinalUseTaskStatus &&\n    medicinalUseTaskStatus !== 'pass' &&\n    medicinalUseTaskStatus !== 'warning'\n  ) {\n    continue;\n  }\n\n\n  selected = run;\n  break;\n}\n\n\n// ============================================================\n// No usable EMA extraction\n// ============================================================\n\nif (!selected) {\n\n  const fallback =\n    runs[0]?.row ?? {};\n\n  return [\n    {\n      json: {\n\n        plant_id:\n          fallback.plant_id ?? null,\n\n        indication_id:\n          fallback.indication_id ?? null,\n\n        traditional_support_score:\n          null,\n\n        traditional_support_level:\n          'unavailable',\n\n        traditional_support_basis:\n          'No usable EMA medicinal-use extraction was available.',\n\n        traditional_support_reason:\n          'No usable EMA medicinal-use extraction was available.',\n\n        ema_extraction_run_id:\n          fallback.id ?? null,\n\n        ema_validation_status:\n          fallback.validation_status ?? null,\n\n        traditional_support_score_version:\n          'phythera_traditional_support_v2'\n      }\n    }\n  ];\n}\n\n\n// ============================================================\n// Extract profile sections\n// ============================================================\n\nconst row =\n  selected.row;\n\nconst profile =\n  selected.profile;\n\nconst medicinalUse =\n  profile?.medicinal_use ?? {};\n\nconst clinicalEfficacy =\n  profile?.clinical_efficacy ?? {};\n\nconst overallAssessment =\n  profile?.overall_assessment ?? {};\n\nconst constituents =\n  profile?.constituents ?? {};\n\n\n// ============================================================\n// Indications\n// ============================================================\n\nconst indications =\n  Array.isArray(\n    medicinalUse?.indications\n  )\n    ? medicinalUse.indications\n    : [];\n\n\n// ============================================================\n// WELL-ESTABLISHED signals\n// ============================================================\n\nconst wellEstablishedSignals = [\n\n  medicinalUse\n    ?.well_established_use_status,\n\n  overallAssessment\n    ?.clinical_evidence_strength\n    ?.assessment,\n\n  overallAssessment\n    ?.regulatory_conclusion,\n\n  constituents\n    ?.therapeutic_activity_status\n    ?.status\n\n];\n\n\nconst hasWellEstablishedUse =\n  clinicalEfficacy\n    ?.well_established_use_supported === true ||\n\n  wellEstablishedSignals.some(\n    isWellEstablishedSignal\n  );\n\n\n// ============================================================\n// TRADITIONAL-USE signals\n//\n// Important:\n// EMA extraction may return:\n//\n// \"traditional\"\n// \"traditional use\"\n// \"traditional medicinal product\"\n// regulatory_basis = \"traditional use\"\n// \"traditional use requirements fulfilled\"\n//\n// All must count as traditional use.\n// ============================================================\n\nconst traditionalSignals = [\n\n  medicinalUse\n    ?.traditional_use_status,\n\n  ...indications.map(\n    indication =>\n      indication?.regulatory_basis\n  ),\n\n  overallAssessment\n    ?.regulatory_conclusion\n\n];\n\n\nconst hasTraditionalUse =\n  traditionalSignals.some(\n    isTraditionalUseSignal\n  );\n\n\n// ============================================================\n// Score\n// ============================================================\n\nlet score = 0;\n\nlet level =\n  'none';\n\nlet basis =\n  'No documented traditional or regulatory support for the target indication.';\n\n\n// ------------------------------------------------------------\n// 1. Well-established use\n// ------------------------------------------------------------\n\nif (hasWellEstablishedUse) {\n\n  score = 1.00;\n\n  level =\n    'well_established_use';\n\n  basis =\n    'EMA documentation supports well-established medicinal use for the target indication.';\n}\n\n\n// ------------------------------------------------------------\n// 2. Traditional use\n// ------------------------------------------------------------\n\nelse if (hasTraditionalUse) {\n\n  score = 0.75;\n\n  level =\n    'traditional_use';\n\n  basis =\n    'EMA documentation supports traditional medicinal use for the target indication.';\n}\n\n\n// ------------------------------------------------------------\n// 3. Medicinal use documented, but no explicit TU/WEU status\n// ------------------------------------------------------------\n\nelse if (\n  indications.length > 0\n) {\n\n  score = 0.50;\n\n  level =\n    'documented_medicinal_use';\n\n  basis =\n    'EMA documents medicinal use, but no explicit well-established or traditional-use status was identified.';\n}\n\n\n// ============================================================\n// Output\n// ============================================================\n\nreturn [\n  {\n    json: {\n\n      plant_id:\n        row.plant_id,\n\n      indication_id:\n        row.indication_id,\n\n      traditional_support_score:\n        score,\n\n      traditional_support_level:\n        level,\n\n      traditional_support_basis:\n        basis,\n\n      traditional_support_reason:\n        basis,\n\n      ema_extraction_run_id:\n        row.id,\n\n      ema_validation_status:\n        row.validation_status,\n\n\n      // --------------------------------------------------------\n      // Diagnostic information\n      // --------------------------------------------------------\n\n      traditional_use_status:\n        medicinalUse\n          ?.traditional_use_status ??\n        null,\n\n      well_established_use_status:\n        medicinalUse\n          ?.well_established_use_status ??\n        null,\n\n      well_established_use_supported:\n        clinicalEfficacy\n          ?.well_established_use_supported ??\n        null,\n\n      regulatory_conclusion:\n        overallAssessment\n          ?.regulatory_conclusion ??\n        null,\n\n      regulatory_evidence_strength:\n        overallAssessment\n          ?.clinical_evidence_strength\n          ?.assessment ??\n        null,\n\n      therapeutic_activity_status:\n        constituents\n          ?.therapeutic_activity_status\n          ?.status ??\n        null,\n\n      indication_regulatory_bases:\n        indications\n          .map(\n            indication =>\n              indication\n                ?.regulatory_basis\n          )\n          .filter(Boolean),\n\n      traditional_support_score_version:\n        'phythera_traditional_support_v2'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7648,
+        64
+      ],
+      "id": "a0bd7c72-1134-4754-bddc-a025e5ac73c7",
+      "name": "Calculate Traditional Support Score"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "traditional_support_score",
+              "fieldValue": "={{ $json.traditional_support_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        7872,
+        160
+      ],
+      "id": "57054b6c-ee42-49db-a6c0-af480e2dc200",
+      "name": "Update Traditional Support Score"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Calculate Evidence Relevance Score\n// Version: phythera_evidence_relevance_v2\n//\n// Base weights:\n//   Modern Evidence       70%\n//   Traditional Support   30%\n//\n// IMPORTANT:\n// Missing data are NOT interpreted as zero.\n// Weights are renormalized across available components.\n//\n// Examples:\n// Modern 0.80 + Traditional 0.75\n// -> 0.70*0.80 + 0.30*0.75 = 0.785\n//\n// Modern 0.80 + Traditional missing\n// -> 0.80\n// -> status = partial\n//\n// Modern missing + Traditional 0.75\n// -> 0.75\n// -> status = partial\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helper\n// ============================================================\n\nfunction validScore(value) {\n\n  return (\n    typeof value === 'number' &&\n    Number.isFinite(value) &&\n    value >= 0 &&\n    value <= 1\n  );\n}\n\n\nfunction round3(value) {\n\n  return Math.round(\n    (value + Number.EPSILON) * 1000\n  ) / 1000;\n}\n\n\n// ============================================================\n// Score each profile\n// ============================================================\n\nreturn items.map(item => {\n\n  const data =\n    item.json;\n\n\n  const modernEvidence =\n    data.modern_evidence_score ?? null;\n\n  const traditionalSupport =\n    data.traditional_support_score ?? null;\n\n\n  const modernValid =\n    validScore(modernEvidence);\n\n  const traditionalValid =\n    validScore(traditionalSupport);\n\n\n  // ==========================================================\n  // Base weights\n  // ==========================================================\n\n  const modernBaseWeight =\n    0.70;\n\n  const traditionalBaseWeight =\n    0.30;\n\n\n  // ==========================================================\n  // Determine available weight\n  // ==========================================================\n\n  let availableWeight = 0;\n\n  if (modernValid) {\n    availableWeight +=\n      modernBaseWeight;\n  }\n\n  if (traditionalValid) {\n    availableWeight +=\n      traditionalBaseWeight;\n  }\n\n\n  // ==========================================================\n  // Calculate score\n  // ==========================================================\n\n  let evidenceRelevanceScore =\n    null;\n\n  let scoreStatus =\n    'unavailable';\n\n  let modernEffectiveWeight =\n    null;\n\n  let traditionalEffectiveWeight =\n    null;\n\n\n  if (availableWeight > 0) {\n\n    let weightedSum = 0;\n\n\n    // --------------------------------------------------------\n    // Modern evidence\n    // --------------------------------------------------------\n\n    if (modernValid) {\n\n      modernEffectiveWeight =\n        modernBaseWeight /\n        availableWeight;\n\n      weightedSum +=\n        modernEvidence *\n        modernEffectiveWeight;\n    }\n\n\n    // --------------------------------------------------------\n    // Traditional support\n    // --------------------------------------------------------\n\n    if (traditionalValid) {\n\n      traditionalEffectiveWeight =\n        traditionalBaseWeight /\n        availableWeight;\n\n      weightedSum +=\n        traditionalSupport *\n        traditionalEffectiveWeight;\n    }\n\n\n    evidenceRelevanceScore =\n      round3(weightedSum);\n\n\n    // --------------------------------------------------------\n    // Coverage status\n    // --------------------------------------------------------\n\n    if (\n      modernValid &&\n      traditionalValid\n    ) {\n\n      scoreStatus =\n        'complete';\n\n    } else {\n\n      scoreStatus =\n        'partial';\n    }\n  }\n\n\n  // ==========================================================\n  // Missing-component diagnostics\n  // ==========================================================\n\n  const missingComponents = [];\n\n  if (!modernValid) {\n    missingComponents.push(\n      'modern_evidence'\n    );\n  }\n\n  if (!traditionalValid) {\n    missingComponents.push(\n      'traditional_support'\n    );\n  }\n\n\n  // ==========================================================\n  // Output\n  // ==========================================================\n\n  return {\n\n    json: {\n\n      ...data,\n\n\n      evidence_relevance_score:\n        evidenceRelevanceScore,\n\n\n      evidence_relevance_score_100:\n        evidenceRelevanceScore === null\n          ? null\n          : Math.round(\n              evidenceRelevanceScore *\n              1000\n            ) / 10,\n\n\n      evidence_relevance_status:\n        scoreStatus,\n\n\n      evidence_relevance_missing_components:\n        missingComponents,\n\n\n      evidence_relevance_components: {\n\n        modern_evidence_score:\n          modernEvidence,\n\n        modern_evidence_available:\n          modernValid,\n\n        modern_evidence_base_weight:\n          modernBaseWeight,\n\n        modern_evidence_effective_weight:\n          modernEffectiveWeight,\n\n\n        traditional_support_score:\n          traditionalSupport,\n\n        traditional_support_available:\n          traditionalValid,\n\n        traditional_support_base_weight:\n          traditionalBaseWeight,\n\n        traditional_support_effective_weight:\n          traditionalEffectiveWeight\n      },\n\n\n      evidence_relevance_score_version:\n        'phythera_evidence_relevance_v2'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8096,
+        160
+      ],
+      "id": "22392f12-027d-422c-b609-dccb6afd5e4e",
+      "name": "Calculate Evidence Relevance Score"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "evidence_relevance_score",
+              "fieldValue": "={{ $json.evidence_relevance_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        8320,
+        160
+      ],
+      "id": "3b80fab5-18c0-411e-9f8a-2d55b2959348",
+      "name": "Update Evidence Relevance Score"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Classify Evidence Category\n// Version: phythera_evidence_category_v2\n//\n// IMPORTANT:\n// Missing EMA / traditional support does NOT prevent\n// classification when modern evidence is available.\n//\n// Missing data are not interpreted as zero.\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helper\n// ============================================================\n\nfunction toScore(value) {\n\n  if (\n    value === null ||\n    value === undefined ||\n    value === ''\n  ) {\n    return null;\n  }\n\n  const n = Number(value);\n\n  if (\n    !Number.isFinite(n) ||\n    n < 0 ||\n    n > 1\n  ) {\n    return null;\n  }\n\n  return n;\n}\n\n\n// ============================================================\n// Classification\n// ============================================================\n\nreturn items.map(item => {\n\n  const data =\n    item.json;\n\n\n  const modern =\n    toScore(\n      data.modern_evidence_score\n    );\n\n  const traditional =\n    toScore(\n      data.traditional_support_score\n    );\n\n  const relevance =\n    toScore(\n      data.evidence_relevance_score\n    );\n\n\n  const relevanceStatus =\n    data.evidence_relevance_status ??\n    'unknown';\n\n\n  // ==========================================================\n  // Availability\n  // ==========================================================\n\n  const modernAvailable =\n    modern !== null;\n\n  const traditionalAvailable =\n    traditional !== null;\n\n  const relevanceAvailable =\n    relevance !== null;\n\n\n  // ==========================================================\n  // Defaults\n  // ==========================================================\n\n  let evidenceCategory =\n    'unclassified';\n\n  let categoryReason =\n    'Available evidence is insufficient for classification.';\n\n\n  // ==========================================================\n  // CASE 1:\n  // Modern evidence is available\n  //\n  // EMA / traditional support may be present OR missing.\n  // ==========================================================\n\n  if (\n    modernAvailable &&\n    relevanceAvailable\n  ) {\n\n\n    // --------------------------------------------------------\n    // ESTABLISHED\n    // --------------------------------------------------------\n\n    if (\n      modern >= 0.60 &&\n      relevance >= 0.70\n    ) {\n\n      evidenceCategory =\n        'established';\n\n\n      if (traditionalAvailable) {\n\n        categoryReason =\n          'Modern evidence is substantial and overall evidence relevance is high.';\n\n      } else {\n\n        categoryReason =\n          'Modern evidence is substantial and meets the established-evidence threshold. EMA/HMPC coverage is unavailable, so the classification is based on the available modern evidence.';\n      }\n    }\n\n\n    // --------------------------------------------------------\n    // TRADITIONAL\n    //\n    // Only possible when actual traditional/regulatory\n    // support exists.\n    // Missing EMA can NEVER trigger this category.\n    // --------------------------------------------------------\n\n    else if (\n      traditionalAvailable &&\n      traditional >= 0.75 &&\n      modern < 0.40\n    ) {\n\n      evidenceCategory =\n        'traditional';\n\n      categoryReason =\n        'Traditional or regulatory support is strong, while modern evidence remains limited.';\n    }\n\n\n    // --------------------------------------------------------\n    // EMERGING\n    // --------------------------------------------------------\n\n    else if (\n      modern >= 0.40\n    ) {\n\n      evidenceCategory =\n        'emerging';\n\n\n      if (traditionalAvailable) {\n\n        categoryReason =\n          'Modern evidence is present but does not yet meet the threshold for established evidence.';\n\n      } else {\n\n        categoryReason =\n          'Modern evidence is present but does not yet meet the threshold for established evidence. EMA/HMPC coverage is unavailable.';\n      }\n    }\n\n\n    // --------------------------------------------------------\n    // EVIDENCE GAP\n    // --------------------------------------------------------\n\n    else {\n\n      evidenceCategory =\n        'evidence_gap';\n\n\n      if (traditionalAvailable) {\n\n        categoryReason =\n          'Current evidence does not meet thresholds for established, traditional, or emerging evidence.';\n\n      } else {\n\n        categoryReason =\n          'Modern evidence remains limited and EMA/HMPC coverage is unavailable. Missing regulatory coverage is not interpreted as negative evidence.';\n      }\n    }\n  }\n\n\n  // ==========================================================\n  // CASE 2:\n  // No modern score, but strong documented traditional support\n  //\n  // Allows a clearly traditional profile without pretending\n  // that missing modern evidence equals zero.\n  // ==========================================================\n\n  else if (\n    !modernAvailable &&\n    traditionalAvailable &&\n    traditional >= 0.75\n  ) {\n\n    evidenceCategory =\n      'traditional';\n\n    categoryReason =\n      'Strong traditional or regulatory support is documented, while a usable modern evidence score is unavailable.';\n  }\n\n\n  // ==========================================================\n  // Output\n  // ==========================================================\n\n  return {\n\n    json: {\n\n      ...data,\n\n      evidence_category:\n        evidenceCategory,\n\n      evidence_category_reason:\n        categoryReason,\n\n      evidence_category_coverage: {\n        modern_evidence_available:\n          modernAvailable,\n\n        traditional_support_available:\n          traditionalAvailable,\n\n        evidence_relevance_available:\n          relevanceAvailable,\n\n        evidence_relevance_status:\n          relevanceStatus\n      },\n\n      evidence_category_version:\n        'phythera_evidence_category_v2',\n\n      scoring_version:\n        'phythera_scoring_v2',\n\n      last_scored_at:\n        new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8544,
+        160
+      ],
+      "id": "a0fa47e9-d58a-4d2c-9fd3-5096b2cf399d",
+      "name": "Classify Evidence Category"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "evidence_category",
+              "fieldValue": "={{ $json.evidence_category }}"
+            },
+            {
+              "fieldId": "scoring_version",
+              "fieldValue": "={{ $json.scoring_version }}"
+            },
+            {
+              "fieldId": "last_scored_at",
+              "fieldValue": "={{ $json.last_scored_at }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        8768,
+        160
+      ],
+      "id": "66b62236-d114-45f8-94ba-19e8098f5262",
+      "name": "Update Evidence Category"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "mapping_runs",
+        "returnAll": true,
+        "orderBy": "created_at.desc",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "mapping_version",
+              "condition": "eq",
+              "keyValue": "phythera_crosscultural_v1"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        10784,
+        -64
+      ],
+      "id": "ddd5351f-f168-4787-ac36-26bd2e117386",
+      "name": "Find Cross-Cultural Mapping",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "8e0212eb-2475-4055-b5b8-d586fd2751da",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        11008,
+        -64
+      ],
+      "id": "b4078e09-1038-4ea4-987f-25b0b4002da9",
+      "name": "Mapping exists?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const profile =\n  $('Update Evidence Category').first().json;\n\nreturn [\n  {\n    json: {\n      plant_id:\n        profile.plant_id,\n\n      indication_id:\n        profile.indication_id,\n\n      source_convergence_score:\n        null,\n\n      source_convergence_status:\n        \"not_available\",\n\n      source_convergence_reason:\n        \"No validated cross-cultural mapping is available for this plant.\",\n\n      source_convergence_score_version:\n        \"phythera_source_convergence_v1\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11232,
+        176
+      ],
+      "id": "8a476657-8371-4177-a693-d540466c283c",
+      "name": "No Mapping - Set Convergence Null"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Calculate Source Convergence Score\n// Version: phythera_source_convergence_v1\n//\n// Scoring:\n// strong_overlap        -> 1.00\n// partial_overlap       -> 0.60\n// distinct_concepts     -> 0.00\n// no_meaningful_mapping -> 0.00\n//\n// IMPORTANT:\n// If a mapping run contains more than one European indication,\n// this v1 scorer returns null rather than assigning the wrong\n// plant-indication score.\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helpers\n// ============================================================\n\nfunction parseProfile(value) {\n  if (!value) return {};\n\n  if (typeof value === \"object\") {\n    return value;\n  }\n\n  if (typeof value === \"string\") {\n    try {\n      return JSON.parse(value);\n    } catch {\n      return {};\n    }\n  }\n\n  return {};\n}\n\n\nfunction normalize(value) {\n  return String(value ?? \"\")\n    .trim()\n    .toLowerCase();\n}\n\n\n// ============================================================\n// Select newest usable mapping run\n// ============================================================\n\nconst runs = items\n  .map(item => ({\n    row: item.json,\n    profile: parseProfile(item.json.profile_json)\n  }))\n  .filter(({ row }) =>\n    row.id &&\n    row.mapping_version === \"phythera_crosscultural_v1\"\n  )\n  .sort((a, b) =>\n    new Date(b.row.created_at ?? 0) -\n    new Date(a.row.created_at ?? 0)\n  );\n\nlet selected = null;\n\nfor (const run of runs) {\n  const status =\n    normalize(run.row.validation_status);\n\n  if (\n    status === \"pass\" ||\n    status === \"warning\"\n  ) {\n    selected = run;\n    break;\n  }\n}\n\n\n// ============================================================\n// No usable mapping run\n// ============================================================\n\nif (!selected) {\n  const profile =\n    $(\"Update Evidence Category\").first().json;\n\n  return [\n    {\n      json: {\n        plant_id:\n          profile.plant_id,\n\n        indication_id:\n          profile.indication_id,\n\n        source_convergence_score:\n          null,\n\n        source_convergence_status:\n          \"not_available\",\n\n        source_convergence_reason:\n          \"No usable validated cross-cultural mapping was available.\",\n\n        mapping_run_id:\n          null,\n\n        source_convergence_score_version:\n          \"phythera_source_convergence_v1\"\n      }\n    }\n  ];\n}\n\n\n// ============================================================\n// Inspect mapping structure\n// ============================================================\n\nconst row = selected.row;\nconst profile = selected.profile;\n\nconst mappings =\n  Array.isArray(profile.mappings)\n    ? profile.mappings\n    : [];\n\n\n// ============================================================\n// Determine how many European indications occur\n// ============================================================\n\nconst europeanIndicationIds =\n  new Set(\n    mappings\n      .map(mapping =>\n        mapping\n          ?.european_indication\n          ?.indication_id\n      )\n      .filter(Boolean)\n  );\n\n\n// ============================================================\n// Safety guard\n// ============================================================\n\nif (europeanIndicationIds.size > 1) {\n  const dbProfile =\n    $(\"Update Evidence Category\").first().json;\n\n  return [\n    {\n      json: {\n        plant_id:\n          dbProfile.plant_id,\n\n        indication_id:\n          dbProfile.indication_id,\n\n        source_convergence_score:\n          null,\n\n        source_convergence_status:\n          \"ambiguous_mapping_scope\",\n\n        source_convergence_reason:\n          \"The mapping run contains multiple European indications and cannot yet be assigned safely to one plant-indication profile.\",\n\n        mapping_run_id:\n          row.id,\n\n        european_indication_count:\n          europeanIndicationIds.size,\n\n        source_convergence_score_version:\n          \"phythera_source_convergence_v1\"\n      }\n    }\n  ];\n}\n\n\n// ============================================================\n// Identify strongest valid mapping\n// ============================================================\n\nlet strongest =\n  profile.strongest_convergence ?? null;\n\n\n// Fallback if strongest_convergence is absent\nif (!strongest && mappings.length > 0) {\n\n  const categoryPriority = {\n    strong_overlap: 3,\n    partial_overlap: 2,\n    distinct_concepts: 1,\n    no_meaningful_mapping: 0\n  };\n\n  const validMappings =\n    mappings.filter(mapping => {\n      const status =\n        normalize(\n          mapping.validation_status\n        );\n\n      return (\n        !status ||\n        status === \"pass\"\n      );\n    });\n\n  strongest =\n    [...validMappings].sort((a, b) => {\n\n      const priorityA =\n        categoryPriority[\n          a.mapping_category\n        ] ?? -1;\n\n      const priorityB =\n        categoryPriority[\n          b.mapping_category\n        ] ?? -1;\n\n      if (priorityA !== priorityB) {\n        return priorityB - priorityA;\n      }\n\n      return (\n        Number(b.confidence ?? 0) -\n        Number(a.confidence ?? 0)\n      );\n    })[0] ?? null;\n}\n\n\n// ============================================================\n// No valid comparison\n// ============================================================\n\nif (!strongest) {\n  const dbProfile =\n    $(\"Update Evidence Category\").first().json;\n\n  return [\n    {\n      json: {\n        plant_id:\n          dbProfile.plant_id,\n\n        indication_id:\n          dbProfile.indication_id,\n\n        source_convergence_score:\n          0,\n\n        source_convergence_status:\n          \"mapped_no_convergence\",\n\n        source_convergence_reason:\n          \"Cross-cultural mapping was performed, but no meaningful convergence was identified.\",\n\n        mapping_run_id:\n          row.id,\n\n        source_convergence_score_version:\n          \"phythera_source_convergence_v1\"\n      }\n    }\n  ];\n}\n\n\n// ============================================================\n// Score category\n// ============================================================\n\nconst category =\n  strongest.mapping_category;\n\nconst scoreMap = {\n  strong_overlap: 1.0,\n  partial_overlap: 0.6,\n  distinct_concepts: 0.0,\n  no_meaningful_mapping: 0.0\n};\n\nconst score =\n  category in scoreMap\n    ? scoreMap[category]\n    : null;\n\n\n// ============================================================\n// Build output\n// ============================================================\n\nconst dbProfile =\n  $(\"Update Evidence Category\").first().json;\n\nreturn [\n  {\n    json: {\n      plant_id:\n        dbProfile.plant_id,\n\n      indication_id:\n        dbProfile.indication_id,\n\n      source_convergence_score:\n        score,\n\n      source_convergence_status:\n        score === null\n          ? \"unclassified\"\n          : \"available\",\n\n      source_convergence_reason:\n        strongest.convergence_claim ??\n        strongest.semantic_overlap ??\n        null,\n\n      mapping_category:\n        category ?? null,\n\n      mapping_confidence:\n        strongest.confidence ?? null,\n\n      european_indication:\n        strongest\n          ?.european_indication\n          ?.source_wording ?? null,\n\n      traditional_indication:\n        strongest\n          ?.tcm_indication\n          ?.source_wording ?? null,\n\n      shared_concept:\n        strongest\n          ?.mapping_basis\n          ?.shared_concept ?? null,\n\n      mapping_run_id:\n        row.id,\n\n      source_convergence_score_version:\n        \"phythera_source_convergence_v1\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11232,
+        -112
+      ],
+      "id": "175034b8-06fd-4840-a0d9-d5df5afa1852",
+      "name": "Calculate Source Convergence Score"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "source_convergence_score",
+              "fieldValue": "={{ $json.source_convergence_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        11456,
+        80
+      ],
+      "id": "03028845-5e62-4c2a-a22b-ab130a467d21",
+      "name": "Update Source Convergence"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Classify Research Opportunity\n// Version: phythera_research_opportunity_v2\n//\n// IMPORTANT:\n// Missing EMA / traditional support or missing convergence\n// are NOT interpreted as negative signals.\n//\n// \"none\" is only assigned when weak modern evidence exists\n// AND the relevant supporting dimensions are actually available\n// AND do not show a positive signal.\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helper\n// ============================================================\n\nfunction toScore(value) {\n\n  if (\n    value === null ||\n    value === undefined ||\n    value === ''\n  ) {\n    return null;\n  }\n\n  const n = Number(value);\n\n  if (\n    !Number.isFinite(n) ||\n    n < 0 ||\n    n > 1\n  ) {\n    return null;\n  }\n\n  return n;\n}\n\n\n// ============================================================\n// Classification\n// ============================================================\n\nreturn items.map(item => {\n\n  const data = item.json;\n\n  const modern =\n    toScore(\n      data.modern_evidence_score\n    );\n\n  const traditional =\n    toScore(\n      data.traditional_support_score\n    );\n\n  const relevance =\n    toScore(\n      data.evidence_relevance_score\n    );\n\n  const convergence =\n    toScore(\n      data.source_convergence_score\n    );\n\n\n  // ==========================================================\n  // Availability\n  // ==========================================================\n\n  const modernAvailable =\n    modern !== null;\n\n  const traditionalAvailable =\n    traditional !== null;\n\n  const relevanceAvailable =\n    relevance !== null;\n\n  const convergenceAvailable =\n    convergence !== null;\n\n\n  // ==========================================================\n  // Positive supporting signals\n  // ==========================================================\n\n  const strongTraditionalSignal =\n    traditionalAvailable &&\n    traditional >= 0.75;\n\n  const strongConvergenceSignal =\n    convergenceAvailable &&\n    convergence >= 0.60;\n\n  const positiveResearchSignal =\n    strongTraditionalSignal ||\n    strongConvergenceSignal;\n\n\n  // ==========================================================\n  // Defaults\n  // ==========================================================\n\n  let opportunity =\n    'unclassified';\n\n  let reason =\n    'Available evidence is insufficient to classify the research opportunity.';\n\n\n  // ==========================================================\n  // CASE 1:\n  // Modern evidence available\n  // ==========================================================\n\n  if (modernAvailable) {\n\n\n    // --------------------------------------------------------\n    // HIGH\n    //\n    // Weak modern evidence + actual positive historical /\n    // regulatory / cross-cultural signal\n    // --------------------------------------------------------\n\n    if (\n      modern < 0.40 &&\n      positiveResearchSignal\n    ) {\n\n      opportunity =\n        'high';\n\n      reason =\n        'Modern evidence remains limited despite strong traditional, regulatory, or cross-cultural support, creating a clear evidence gap worth investigating.';\n    }\n\n\n    // --------------------------------------------------------\n    // NONE\n    //\n    // Only when supporting dimensions have actually been\n    // evaluated and show no positive signal.\n    //\n    // Missing EMA or mapping data can NEVER trigger \"none\".\n    // --------------------------------------------------------\n\n    else if (\n      modern < 0.40 &&\n      traditionalAvailable &&\n      convergenceAvailable &&\n      !positiveResearchSignal\n    ) {\n\n      opportunity =\n        'none';\n\n      reason =\n        'Modern evidence is limited and the available traditional and cross-cultural evidence does not currently provide a strong signal for prioritizing further investigation.';\n    }\n\n\n    // --------------------------------------------------------\n    // MODERATE\n    //\n    // Weak modern evidence, but one or more supporting\n    // dimensions are missing.\n    //\n    // We do not interpret missing coverage as a negative signal.\n    // --------------------------------------------------------\n\n    else if (\n      modern < 0.40\n    ) {\n\n      opportunity =\n        'moderate';\n\n      reason =\n        'Modern evidence remains limited, while one or more traditional, regulatory, or cross-cultural evidence dimensions are unavailable. Missing source coverage is not interpreted as a negative research signal.';\n    }\n\n\n    // --------------------------------------------------------\n    // MODERATE\n    //\n    // Emerging modern evidence\n    // --------------------------------------------------------\n\n    else if (\n      modern < 0.60\n    ) {\n\n      opportunity =\n        'moderate';\n\n      reason =\n        'Modern evidence is present but remains incomplete, leaving meaningful scope for additional clinical research.';\n    }\n\n\n    // --------------------------------------------------------\n    // MODERATE\n    //\n    // Strong modern evidence + cross-cultural convergence\n    // --------------------------------------------------------\n\n    else if (\n      strongConvergenceSignal\n    ) {\n\n      opportunity =\n        'moderate';\n\n      reason =\n        'Modern evidence is substantial, but cross-cultural convergence provides an additional rationale for comparative or confirmatory research.';\n    }\n\n\n    // --------------------------------------------------------\n    // LOW\n    //\n    // Strong modern evidence with high relevance.\n    //\n    // This remains valid even when EMA is missing because\n    // evidence_relevance_v2 transparently marks coverage\n    // as partial.\n    // --------------------------------------------------------\n\n    else if (\n      modern >= 0.60 &&\n      relevanceAvailable &&\n      relevance >= 0.70\n    ) {\n\n      opportunity =\n        'low';\n\n      reason =\n        traditionalAvailable\n          ? 'Modern and overall evidence are already substantial, so the remaining research opportunity is comparatively limited.'\n          : 'Modern evidence is already substantial. EMA/HMPC coverage is unavailable, but the available evidence indicates a comparatively limited remaining clinical research opportunity.';\n    }\n\n\n    // --------------------------------------------------------\n    // Remaining intermediate cases\n    // --------------------------------------------------------\n\n    else {\n\n      opportunity =\n        'moderate';\n\n      reason =\n        'Evidence is meaningful but not sufficiently established to classify the remaining research opportunity as low.';\n    }\n  }\n\n\n  // ==========================================================\n  // CASE 2:\n  // No usable modern evidence score\n  // ==========================================================\n\n  else if (positiveResearchSignal) {\n\n    opportunity =\n      'high';\n\n    reason =\n      'A strong traditional, regulatory, or cross-cultural signal is present, while a usable modern clinical evidence score is unavailable, representing a substantial research opportunity.';\n  }\n\n\n  // ==========================================================\n  // Output\n  // ==========================================================\n\n  return {\n\n    json: {\n\n      ...data,\n\n      research_opportunity:\n        opportunity,\n\n      research_opportunity_reason:\n        reason,\n\n      research_opportunity_coverage: {\n\n        modern_evidence_available:\n          modernAvailable,\n\n        traditional_support_available:\n          traditionalAvailable,\n\n        evidence_relevance_available:\n          relevanceAvailable,\n\n        source_convergence_available:\n          convergenceAvailable\n      },\n\n      research_opportunity_version:\n        'phythera_research_opportunity_v2'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11680,
+        80
+      ],
+      "id": "e80bc0a2-528b-426c-b3cb-b92d6459b761",
+      "name": "Classify Research Opportunity"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "research_opportunity",
+              "fieldValue": "={{ $json.research_opportunity }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        11904,
+        80
+      ],
+      "id": "0ccc5460-ace1-4d24-a89b-22d3824c1142",
+      "name": "Update Research Opportunity"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Build Profile Rationale\n// Version: phythera_profile_rationale_v2\n//\n// Handles complete and partial evidence coverage.\n// Missing source coverage is explicitly distinguished\n// from negative evidence.\n// ============================================================\n\nconst items = $input.all();\n\n\n// ============================================================\n// Helpers\n// ============================================================\n\nfunction toScore(value) {\n\n  if (\n    value === null ||\n    value === undefined ||\n    value === ''\n  ) {\n    return null;\n  }\n\n  const n = Number(value);\n\n  return Number.isFinite(n)\n    ? n\n    : null;\n}\n\n\nfunction formatScore(value) {\n\n  return value === null\n    ? null\n    : value.toFixed(3);\n}\n\n\n// ============================================================\n// Build rationale\n// ============================================================\n\nreturn items.map(item => {\n\n  const data =\n    item.json;\n\n\n  const modern =\n    toScore(\n      data.modern_evidence_score\n    );\n\n  const traditional =\n    toScore(\n      data.traditional_support_score\n    );\n\n  const relevance =\n    toScore(\n      data.evidence_relevance_score\n    );\n\n  const convergence =\n    toScore(\n      data.source_convergence_score\n    );\n\n\n  const relevanceStatus =\n    data.evidence_relevance_status ??\n    'unknown';\n\n\n  const category =\n    data.evidence_category ??\n    'unclassified';\n\n  const opportunity =\n    data.research_opportunity ??\n    'unclassified';\n\n\n  // ==========================================================\n  // Evidence category\n  // ==========================================================\n\n  const categoryText = {\n\n    established:\n      'The evidence profile is classified as established.',\n\n    traditional:\n      'The evidence profile is primarily supported by traditional or regulatory use.',\n\n    emerging:\n      'The evidence profile is classified as emerging.',\n\n    evidence_gap:\n      'The evidence profile currently shows a substantial evidence gap.',\n\n    unclassified:\n      'The evidence profile cannot yet be fully classified.'\n\n  }[category] ??\n  'The evidence profile cannot yet be fully classified.';\n\n\n  // ==========================================================\n  // Evidence relevance\n  // ==========================================================\n\n  let scoreText =\n    'No usable overall evidence relevance score is currently available.';\n\n\n  // ----------------------------------------------------------\n  // Complete coverage\n  // ----------------------------------------------------------\n\n  if (\n    relevance !== null &&\n    modern !== null &&\n    traditional !== null\n  ) {\n\n    scoreText =\n      `Overall evidence relevance is ${formatScore(relevance)}, ` +\n      `combining modern clinical evidence (${formatScore(modern)}) ` +\n      `with traditional or regulatory support (${formatScore(traditional)}).`;\n  }\n\n\n  // ----------------------------------------------------------\n  // Partial coverage:\n  // modern available, EMA/traditional support missing\n  // ----------------------------------------------------------\n\n  else if (\n    relevance !== null &&\n    modern !== null &&\n    traditional === null\n  ) {\n\n    scoreText =\n      `Overall evidence relevance is ${formatScore(relevance)} based on ` +\n      `available modern clinical evidence (${formatScore(modern)}). ` +\n      `EMA/HMPC traditional or regulatory coverage is unavailable and ` +\n      `is therefore not interpreted as negative evidence.`;\n  }\n\n\n  // ----------------------------------------------------------\n  // Partial coverage:\n  // traditional available, modern missing\n  // ----------------------------------------------------------\n\n  else if (\n    relevance !== null &&\n    modern === null &&\n    traditional !== null\n  ) {\n\n    scoreText =\n      `Overall evidence relevance is ${formatScore(relevance)} based on ` +\n      `available traditional or regulatory support (${formatScore(traditional)}). ` +\n      `A usable modern clinical evidence score is currently unavailable.`;\n  }\n\n\n  // ==========================================================\n  // Source convergence\n  // ==========================================================\n\n  let convergenceText =\n    'No cross-cultural source-convergence score is currently available.';\n\n\n  if (convergence !== null) {\n\n    convergenceText =\n      `Cross-cultural source convergence is ${formatScore(convergence)}.`;\n\n  } else {\n\n    const hasEMA =\n      Boolean(\n        $('Pick Next Plant')\n          .first()\n          .json\n          .ema_source_url\n      );\n\n    const hasTraditionalSource =\n      Boolean(\n        $('Pick Next Plant')\n          .first()\n          .json\n          .traditional_source_url\n      );\n\n\n    if (\n      hasTraditionalSource &&\n      !hasEMA\n    ) {\n\n      convergenceText =\n        'Cross-cultural source convergence could not be calculated because no EMA/HMPC comparison source is available.';\n\n    } else if (\n      !hasTraditionalSource\n    ) {\n\n      convergenceText =\n        'Cross-cultural source convergence could not be calculated because no traditional comparison source is available.';\n    }\n  }\n\n\n  // ==========================================================\n  // Research opportunity\n  // ==========================================================\n\n  const opportunityText =\n    opportunity === 'unclassified'\n      ? 'The remaining research opportunity cannot yet be classified.'\n      : `The remaining research opportunity is classified as ${opportunity}.`;\n\n\n  // ==========================================================\n  // Coverage transparency\n  // ==========================================================\n\n  const coverageText =\n    relevanceStatus === 'partial'\n      ? 'The evidence relevance score is based on partial source coverage.'\n      : relevanceStatus === 'complete'\n        ? 'The evidence relevance score is based on complete configured source coverage.'\n        : null;\n\n\n  // ==========================================================\n  // Final rationale\n  // ==========================================================\n\n  const profileRationale = [\n\n    categoryText,\n\n    scoreText,\n\n    convergenceText,\n\n    opportunityText,\n\n    coverageText\n\n  ]\n    .filter(Boolean)\n    .join(' ');\n\n\n  // ==========================================================\n  // Output\n  // ==========================================================\n\n  return {\n\n    json: {\n\n      ...data,\n\n      profile_rationale:\n        profileRationale,\n\n      scoring_version:\n        'phythera_scoring_v2',\n\n      last_scored_at:\n        new Date().toISOString(),\n\n      profile_rationale_version:\n        'phythera_profile_rationale_v2'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12128,
+        80
+      ],
+      "id": "0d206d8e-2e7e-4367-be2e-a506e15a2456",
+      "name": "Build Profile Rationale"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_indication_profiles",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.plant_id }}"
+            },
+            {
+              "keyName": "indication_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.indication_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "profile_rationale",
+              "fieldValue": "={{ $json.profile_rationale }}"
+            },
+            {
+              "fieldId": "scoring_version",
+              "fieldValue": "={{ $json.scoring_version }}"
+            },
+            {
+              "fieldId": "last_scored_at",
+              "fieldValue": "={{ $json.last_scored_at }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        12352,
+        80
+      ],
+      "id": "40003776-861c-48bc-b16d-44b715fd3cc2",
+      "name": "Update Profile Rationale"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "plant_ingestion_queue",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Prepare EMA Job').first().json.queue_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "completed"
+            },
+            {
+              "fieldId": "current_step",
+              "fieldValue": "completed"
+            },
+            {
+              "fieldId": "completed_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        12576,
+        80
+      ],
+      "id": "7f29908f-84a3-4f24-b33c-3f8521e1adf0",
+      "name": "Mark Queue Completed"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2912,
+        160
+      ],
+      "id": "bba9655a-419c-4fef-87ab-f54d92930aa7",
+      "name": "Wait for NCBI Rate Limit"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "c5d800ee-85bb-459b-873c-d0ef9177dc33",
+              "leftValue": "={{ $('Pick Next Plant').first().json.traditional_source_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        8992,
+        160
+      ],
+      "id": "ac135bbc-fb63-4880-9b27-2d1f1011d608",
+      "name": "Traditional source available?"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "PhyThera – TCM Ingestion v0.1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        9888,
+        -32
+      ],
+      "id": "675440d5-0a37-491d-ae5b-52751ac36202",
+      "name": "Execute TCM Extraction"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "PhyThera – Cross-Cultural Mapping v0.1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        10560,
+        -64
+      ],
+      "id": "6c150f4c-bb11-4a0a-a403-8684f0f6852f",
+      "name": "Execute Cross-Cultural Mapping"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Pick Next Plant').first().json;\n\nreturn [\n  {\n    json: {\n      queue_id: q.id,\n      plant_id: q.plant_id,\n      scientific_name: q.scientific_name,\n      target_indication: q.target_indication,\n      indication_context: q.indication_context,\n\n      traditional_source_url:\n        q.traditional_source_url,\n\n      traditional_system:\n        q.traditional_system,\n\n      modules:\n        q.modules\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10336,
+        -64
+      ],
+      "id": "5b739a08-e86c-4089-ae71-e49cc84b60df",
+      "name": "Prepare Mapping Job"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $('Pick Next Plant').first().json;\nconst policy = $('Check TCM Source Policy').first().json;\n\nreturn [\n  {\n    json: {\n      queue_id: q.id,\n      plant_id: q.plant_id,\n      scientific_name: q.scientific_name,\n      target_indication: q.target_indication,\n      indication_context: q.indication_context,\n\n      traditional_source_url: q.traditional_source_url,\n      traditional_system: q.traditional_system,\n\n      source_policy_checked: true,\n      automated_retrieval_authorized:\n        policy.tcm_automated_retrieval_allowed === true,\n      tcm_source_policy_status:\n        policy.tcm_source_policy_status ?? null,\n      tcm_source_policy_version:\n        policy.tcm_source_policy_version ?? null,\n\n      modules: q.modules,\n      priority: q.priority\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9664,
+        -32
+      ],
+      "id": "be3e99e4-ec88-4d8a-b5d6-e7e1d9da6b63",
+      "name": "Prepare TCM Job"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "07a24fcc-8e2a-4e9f-87f6-745f40559745",
+              "leftValue": "={{ $json.ema_source_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        160
+      ],
+      "id": "eebcbcf8-8022-494c-bc55-26a9b58c1832",
+      "name": "EMA source available?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "dd81b535-4287-403b-b4cd-777856b89e64",
+              "leftValue": "={{ $('Pick Next Plant').first().json.ema_source_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        7200,
+        160
+      ],
+      "id": "1cd2b71e-d931-4a38-b168-b7591cc75111",
+      "name": "EMA available for Traditional Score?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nreturn [\n  {\n    json: {\n      ...data,\n\n      traditional_support_score: null,\n\n      traditional_support_level:\n        'unavailable',\n\n      traditional_support_basis:\n        'No EMA/HMPC source is available for this plant and indication.',\n\n      traditional_support_reason:\n        'EMA/HMPC coverage is unavailable. Missing database coverage is not interpreted as negative evidence.',\n\n      ema_extraction_run_id:\n        null,\n\n      ema_validation_status:\n        null,\n\n      traditional_support_score_version:\n        'phythera_traditional_support_v2'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7648,
+        256
+      ],
+      "id": "31afb663-dbae-4e78-9f42-64596195a309",
+      "name": "Set Traditional Support Missing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "58d79fc0-fb94-4d39-a917-ac4e46f2c34b",
+              "leftValue": "={{ $('Pick Next Plant').first().json.ema_source_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        10112,
+        16
+      ],
+      "id": "635398b6-5569-45a3-8dd9-0d33e823f040",
+      "name": "EMA available for Mapping?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Check TCM Source Policy\n// Version: phythera_tcm_source_policy_v2\n//\n// PUBLIC RELEASE POLICY:\n//\n// Automated retrieval is disabled by default.\n// A source must be explicitly approved before machine access\n// and reuse are permitted.\n// ============================================================\n\nconst data = $json;\n\nconst q =\n  $('Pick Next Plant').first().json;\n\n\n// ------------------------------------------------------------\n// Helper\n// ------------------------------------------------------------\n\nfunction parseObject(value) {\n\n  if (!value) return {};\n\n  if (typeof value === 'object') {\n    return value;\n  }\n\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch {\n      return {};\n    }\n  }\n\n  return {};\n}\n\n\n// ------------------------------------------------------------\n// Source metadata\n// ------------------------------------------------------------\n\nconst metadata =\n  parseObject(q.metadata);\n\nconst sourcePolicy =\n  parseObject(\n    metadata.tcm_source_policy\n  );\n\nconst sourceUrl =\n  q.traditional_source_url ??\n  data.traditional_source_url ??\n  null;\n\n\nlet hostname = null;\n\ntry {\n\n  hostname =\n    sourceUrl\n      ? new URL(sourceUrl).hostname.toLowerCase()\n      : null;\n\n} catch {\n\n  hostname = null;\n}\n\n\n// ------------------------------------------------------------\n// Explicit allow only\n// ------------------------------------------------------------\n\nconst explicitlyAllowed =\n  sourcePolicy.automated_retrieval_allowed === true;\n\n\nlet policyStatus;\nlet policyReason;\n\n\nif (explicitlyAllowed) {\n\n  policyStatus =\n    'allowed_explicit';\n\n  policyReason =\n    sourcePolicy.basis ??\n    'Automated retrieval and reuse have been explicitly approved for this source.';\n\n} else {\n\n  policyStatus =\n    'review_required';\n\n  policyReason =\n    'Automated retrieval is disabled unless source terms or permissions explicitly allow machine access and reuse.';\n}\n\n\n// ------------------------------------------------------------\n// Output\n// ------------------------------------------------------------\n\nreturn [\n  {\n    json: {\n\n      ...data,\n\n      traditional_source_url:\n        sourceUrl,\n\n      tcm_source_hostname:\n        hostname,\n\n      tcm_automated_retrieval_allowed:\n        explicitlyAllowed,\n\n      tcm_source_policy_status:\n        policyStatus,\n\n      tcm_source_policy_reason:\n        policyReason,\n\n      tcm_source_policy_version:\n        'phythera_tcm_source_policy_v2'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9216,
+        80
+      ],
+      "id": "57d79bac-0d2c-4011-a799-af97e03f978a",
+      "name": "Check TCM Source Policy"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "3a26a81d-320b-40ff-b1a3-dcb5df0819cf",
+              "leftValue": "={{ $json.tcm_automated_retrieval_allowed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        9440,
+        80
+      ],
+      "id": "9fd4bc42-4d62-4d74-b749-2a896d64be1e",
+      "name": "Automated TCM retrieval allowed?"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "extraction_runs",
+        "returnAll": true,
+        "orderBy": "created_at.desc",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Pick Next Plant').first().json.plant_id }}"
+            },
+            {
+              "keyName": "pipeline",
+              "condition": "eq",
+              "keyValue": "PhyThera TCM Extraction"
+            },
+            {
+              "keyName": "schema_version",
+              "condition": "eq",
+              "keyValue": "phythera_tcm_v1"
+            },
+            {
+              "keyName": "validation_status",
+              "condition": "eq",
+              "keyValue": "pass"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        9664,
+        208
+      ],
+      "id": "f22adb12-85db-4465-8963-194eacb664ff",
+      "name": "Get Existing TCM Extraction",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "3c787fdc-1c98-47d2-bad3-2a18d7ce5dbb",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        9888,
+        208
+      ],
+      "id": "78ea000d-beb6-434f-84a9-2c4007bc74ca",
+      "name": "Cached TCM extraction available?"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Queue": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Plant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Next Plant": {
+      "main": [
+        [
+          {
+            "node": "Mark Running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Running": {
+      "main": [
+        [
+          {
+            "node": "Prepare EMA Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare EMA Job": {
+      "main": [
+        [
+          {
+            "node": "EMA source available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute EMA Extraction": {
+      "main": [
+        [
+          {
+            "node": "Advance to Modern Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Advance to Modern Evidence": {
+      "main": [
+        [
+          {
+            "node": "Lookup PubMed Indication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup PubMed Indication": {
+      "main": [
+        [
+          {
+            "node": "Prepare PubMed Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PubMed Query": {
+      "main": [
+        [
+          {
+            "node": "Search PubMed Reviews",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search PubMed Trials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PubMed IDs": {
+      "main": [
+        [
+          {
+            "node": "Wait for NCBI Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PubMed Abstracts": {
+      "main": [
+        [
+          {
+            "node": "Parse PubMed XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse PubMed XML": {
+      "main": [
+        [
+          {
+            "node": "Normalize PubMed Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize PubMed Articles": {
+      "main": [
+        [
+          {
+            "node": "Define Evidence Screening Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Evidence Screening Schema": {
+      "main": [
+        [
+          {
+            "node": "AI Evidence Relevance Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Evidence Relevance Screen",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Evidence Relevance Screen": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Evidence Screen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search PubMed Reviews": {
+      "main": [
+        [
+          {
+            "node": "Merge PubMed Searches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge PubMed Searches": {
+      "main": [
+        [
+          {
+            "node": "Prepare PubMed IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search PubMed Trials": {
+      "main": [
+        [
+          {
+            "node": "Merge PubMed Searches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Evidence Screen": {
+      "main": [
+        [
+          {
+            "node": "Keep Included Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Included Evidence": {
+      "main": [
+        [
+          {
+            "node": "Define Outcome Extraction Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Outcome Extraction Schema": {
+      "main": [
+        [
+          {
+            "node": "AI Outcome Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Outcome Extraction",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Outcome Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Outcome Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Outcome Extraction": {
+      "main": [
+        [
+          {
+            "node": "Assign Evidence Families",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assign Evidence Families": {
+      "main": [
+        [
+          {
+            "node": "Select Family Representatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Family Representatives": {
+      "main": [
+        [
+          {
+            "node": "Calculate Modern Evidence Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Modern Evidence Score": {
+      "main": [
+        [
+          {
+            "node": "Prepare Modern Evidence DB Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Modern Evidence DB Update": {
+      "main": [
+        [
+          {
+            "node": "Find existing plant_indication_profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find existing plant_indication_profile": {
+      "main": [
+        [
+          {
+            "node": "Profile exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Profile exists?": {
+      "main": [
+        [
+          {
+            "node": "Update plant_indication_profiles",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create plant_indication_profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update plant_indication_profiles": {
+      "main": [
+        [
+          {
+            "node": "EMA available for Traditional Score?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create plant_indication_profile": {
+      "main": [
+        [
+          {
+            "node": "EMA available for Traditional Score?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get EMA Extraction for Traditional Score": {
+      "main": [
+        [
+          {
+            "node": "Calculate Traditional Support Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Traditional Support Score": {
+      "main": [
+        [
+          {
+            "node": "Update Traditional Support Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Traditional Support Score": {
+      "main": [
+        [
+          {
+            "node": "Calculate Evidence Relevance Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Evidence Relevance Score": {
+      "main": [
+        [
+          {
+            "node": "Update Evidence Relevance Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Evidence Relevance Score": {
+      "main": [
+        [
+          {
+            "node": "Classify Evidence Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Evidence Category": {
+      "main": [
+        [
+          {
+            "node": "Update Evidence Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Evidence Category": {
+      "main": [
+        [
+          {
+            "node": "Traditional source available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Cross-Cultural Mapping": {
+      "main": [
+        [
+          {
+            "node": "Mapping exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapping exists?": {
+      "main": [
+        [
+          {
+            "node": "Calculate Source Convergence Score",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Mapping - Set Convergence Null",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Source Convergence Score": {
+      "main": [
+        [
+          {
+            "node": "Update Source Convergence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Mapping - Set Convergence Null": {
+      "main": [
+        [
+          {
+            "node": "Update Source Convergence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Source Convergence": {
+      "main": [
+        [
+          {
+            "node": "Classify Research Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Research Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Update Research Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Research Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Build Profile Rationale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Profile Rationale": {
+      "main": [
+        [
+          {
+            "node": "Update Profile Rationale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Profile Rationale": {
+      "main": [
+        [
+          {
+            "node": "Mark Queue Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for NCBI Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Get PubMed Abstracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traditional source available?": {
+      "main": [
+        [
+          {
+            "node": "Check TCM Source Policy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Mapping - Set Convergence Null",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute TCM Extraction": {
+      "main": [
+        [
+          {
+            "node": "EMA available for Mapping?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Cross-Cultural Mapping": {
+      "main": [
+        [
+          {
+            "node": "Find Cross-Cultural Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Mapping Job": {
+      "main": [
+        [
+          {
+            "node": "Execute Cross-Cultural Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare TCM Job": {
+      "main": [
+        [
+          {
+            "node": "Execute TCM Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EMA source available?": {
+      "main": [
+        [
+          {
+            "node": "Execute EMA Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Advance to Modern Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EMA available for Traditional Score?": {
+      "main": [
+        [
+          {
+            "node": "Get EMA Extraction for Traditional Score",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Traditional Support Missing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Traditional Support Missing": {
+      "main": [
+        [
+          {
+            "node": "Update Traditional Support Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EMA available for Mapping?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mapping Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Mapping - Set Convergence Null",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check TCM Source Policy": {
+      "main": [
+        [
+          {
+            "node": "Automated TCM retrieval allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automated TCM retrieval allowed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare TCM Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Existing TCM Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing TCM Extraction": {
+      "main": [
+        [
+          {
+            "node": "Cached TCM extraction available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cached TCM extraction available?": {
+      "main": [
+        [
+          {
+            "node": "EMA available for Mapping?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Mapping - Set Convergence Null",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": []
+}

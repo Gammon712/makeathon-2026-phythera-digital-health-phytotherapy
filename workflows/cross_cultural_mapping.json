@@ -1,0 +1,472 @@
+{
+  "name": "PhyThera – Cross-Cultural Mapping v0.1",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c582d7b2-91a8-4267-b3b3-5ab918c8cf89",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0db18cb8-5a7b-4afa-889a-d4dabf35590d",
+              "name": "mapping_version",
+              "value": "phythera_crosscultural_v1",
+              "type": "string"
+            },
+            {
+              "id": "23b02abb-e1a8-4b8c-a1ff-20403648ee77",
+              "name": "mapping_scope",
+              "value": "traditional_indications",
+              "type": "string"
+            },
+            {
+              "id": "eaa6fc8c-9a4e-4dc8-bd06-78439deddd70",
+              "name": "plant",
+              "value": "={{ $json.scientific_name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "ffe373d7-76e6-4797-8f8d-c30288414402",
+      "name": "Define Mapping Target"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "plants",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "scientific_name",
+              "condition": "eq",
+              "keyValue": "={{ $('Define Mapping Target').first().json.plant }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "39a36708-1a35-4bad-8f50-c01a1a7686c0",
+      "name": "Lookup Plant"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "extraction_runs",
+        "limit": 1,
+        "orderBy": "created_at.desc",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Lookup Plant').first().json.id }}"
+            },
+            {
+              "keyName": "pipeline",
+              "condition": "eq",
+              "keyValue": "PhyThera EMA Extraction"
+            },
+            {
+              "keyName": "validation_status",
+              "condition": "eq",
+              "keyValue": "pass"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        0
+      ],
+      "id": "19851016-0d5a-4949-a353-73c66a22e93c",
+      "name": "Lookup EMA Run"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "extraction_runs",
+        "limit": 1,
+        "orderBy": "created_at.desc",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "plant_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Lookup Plant').first().json.id }}"
+            },
+            {
+              "keyName": "pipeline",
+              "condition": "eq",
+              "keyValue": "PhyThera TCM Extraction"
+            },
+            {
+              "keyName": "validation_status",
+              "condition": "eq",
+              "keyValue": "pass"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "d340c228-fe36-473a-aacd-eef3c99a5a1d",
+      "name": "Lookup TCM Run"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const target = $('Define Mapping Target').first().json;\nconst emaRun = $('Lookup EMA Run').first().json;\nconst tcmRun = $('Lookup TCM Run').first().json;\n\n// --------------------------------------------------\n// 1. Basic checks\n// --------------------------------------------------\n\nif (!emaRun) {\n  throw new Error('EMA run is missing.');\n}\n\nif (!tcmRun) {\n  throw new Error('TCM run is missing.');\n}\n\nif (!emaRun.profile_json) {\n  throw new Error('EMA profile_json is missing.');\n}\n\nif (!tcmRun.profile_json) {\n  throw new Error('TCM profile_json is missing.');\n}\n\n// --------------------------------------------------\n// 2. Parse profile_json safely\n// --------------------------------------------------\n\nfunction parseProfile(value, label) {\n  if (value === null || value === undefined) {\n    throw new Error(`${label} profile_json is empty.`);\n  }\n\n  if (typeof value === 'object') {\n    return value;\n  }\n\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch (error) {\n      throw new Error(\n        `${label} profile_json could not be parsed: ${error.message}`\n      );\n    }\n  }\n\n  throw new Error(\n    `${label} profile_json has unexpected type: ${typeof value}`\n  );\n}\n\nconst ema = parseProfile(\n  emaRun.profile_json,\n  'EMA'\n);\n\nconst tcm = parseProfile(\n  tcmRun.profile_json,\n  'TCM'\n);\n\n// --------------------------------------------------\n// 3. Validate source runs\n// --------------------------------------------------\n\nif (emaRun.validation_status !== 'pass') {\n  throw new Error(\n    `EMA extraction is not validated: ${emaRun.validation_status}`\n  );\n}\n\nif (tcmRun.validation_status !== 'pass') {\n  throw new Error(\n    `TCM extraction is not validated: ${tcmRun.validation_status}`\n  );\n}\n\n// --------------------------------------------------\n// 4. Read indications robustly\n// --------------------------------------------------\n\nconst europeanIndications =\n  ema.medicinal_use?.indications ??\n  ema.extracted_data?.medicinal_use?.indications ??\n  [];\n\nconst tcmIndications =\n  tcm.traditional_indications ??\n  tcm.extracted_data?.traditional_indications ??\n  [];\n\n// --------------------------------------------------\n// 5. Read TCM actions robustly\n// --------------------------------------------------\n\nconst tcmActions =\n  tcm.traditional_actions ??\n  tcm.extracted_data?.traditional_actions ??\n  [];\n\n// --------------------------------------------------\n// 6. Check content\n// --------------------------------------------------\n\nif (europeanIndications.length === 0) {\n  throw new Error(\n    `No European indications found. EMA profile keys: ${Object.keys(ema).join(', ')}`\n  );\n}\n\nif (tcmIndications.length === 0) {\n  throw new Error(\n    `No TCM indications found. TCM profile keys: ${Object.keys(tcm).join(', ')}`\n  );\n}\n\n// --------------------------------------------------\n// 7. Determine metadata safely\n// --------------------------------------------------\n\nconst emaMetadata =\n  ema.profile_metadata ??\n  ema.extracted_data?.profile_metadata ??\n  {};\n\nconst tcmMetadata =\n  tcm.profile_metadata ??\n  tcm.extracted_data?.profile_metadata ??\n  {};\n\nconst emaMedicinalUse =\n  ema.medicinal_use ??\n  ema.extracted_data?.medicinal_use ??\n  {};\n\nconst emaClinical =\n  ema.clinical_efficacy ??\n  ema.extracted_data?.clinical_efficacy ??\n  {};\n\nconst tcmIdentity =\n  tcm.identity ??\n  tcm.extracted_data?.identity ??\n  {};\n\nconst tcmProperties =\n  tcm.tcm_properties ??\n  tcm.extracted_data?.tcm_properties ??\n  {};\n\n// --------------------------------------------------\n// 8. Build clean cross-cultural mapping input\n// --------------------------------------------------\n\nreturn {\n  json: {\n\n    mapping_metadata: {\n      mapping_version:\n        target.mapping_version ??\n        'phythera_crosscultural_v1',\n\n      mapping_scope:\n        target.mapping_scope ??\n        'traditional_indications',\n\n      plant:\n        target.plant ??\n        emaMetadata.plant ??\n        tcmMetadata.plant ??\n        null,\n\n      ema_run_id:\n        emaRun.id ?? null,\n\n      tcm_run_id:\n        tcmRun.id ?? null,\n\n      input_validation:\n        'pass'\n    },\n\n    european_profile: {\n\n      source_system:\n        'European phytotherapy',\n\n      source_type:\n        'EMA/HMPC',\n\n      source_title:\n        emaMetadata.document_title ??\n        null,\n\n      source_id:\n        emaMetadata.document_id ??\n        null,\n\n      source_url:\n        emaMetadata.source_url ??\n        null,\n\n      indications:\n        europeanIndications.map(\n          (item, index) => ({\n            indication_id:\n              `ema_${index + 1}`,\n\n            source_wording:\n              item.source_wording ??\n              null,\n\n            source_quote:\n              item.source_quote ??\n              null,\n\n            regulatory_basis:\n              item.regulatory_basis ??\n              null\n          })\n        ),\n\n      regulatory_context: {\n\n        traditional_use_status:\n          emaMedicinalUse\n            .traditional_use_status ??\n          null,\n\n        well_established_use_status:\n          emaMedicinalUse\n            .well_established_use_status ??\n          null,\n\n        duration_of_use:\n          emaMedicinalUse\n            .duration_of_use ??\n          null\n      },\n\n      clinical_context: {\n\n        evidence_summary:\n          emaClinical\n            .evidence_summary ??\n          null,\n\n        overall_efficacy_conclusion:\n          emaClinical\n            .overall_efficacy_conclusion ??\n          null,\n\n        well_established_use_supported:\n          emaClinical\n            .well_established_use_supported ??\n          null\n      }\n    },\n\n    tcm_profile: {\n\n      source_system:\n        'Traditional Chinese Medicine',\n\n      source_type:\n        tcmMetadata.source_type ??\n        'herbal_database',\n\n      source_name:\n        tcmMetadata.source_name ??\n        null,\n\n      source_url:\n        tcmMetadata.source_url ??\n        null,\n\n      chinese_name:\n        tcmMetadata.chinese_name ??\n        null,\n\n      pinyin:\n        tcmMetadata.pinyin ??\n        null,\n\n      medicinal_group:\n        tcmIdentity.medicinal_group ??\n        null,\n\n      tcm_properties: {\n\n        nature:\n          tcmProperties.nature ??\n          null,\n\n        flavors:\n          tcmProperties.flavors ??\n          [],\n\n        meridian_affinity:\n          tcmProperties\n            .meridian_affinity ??\n          []\n      },\n\n      traditional_actions:\n        tcmActions.map(\n          (item, index) => ({\n            action_id:\n              `tcm_action_${index + 1}`,\n\n            action:\n              item.action ??\n              null,\n\n            source_quote:\n              item.source_quote ??\n              null\n          })\n        ),\n\n      indications:\n        tcmIndications.map(\n          (item, index) => ({\n            indication_id:\n              `tcm_${index + 1}`,\n\n            source_wording:\n              item.source_wording ??\n              null,\n\n            source_quote:\n              item.source_quote ??\n              null\n          })\n        )\n    },\n\n    input_counts: {\n\n      european_indications:\n        europeanIndications.length,\n\n      tcm_indications:\n        tcmIndications.length,\n\n      tcm_actions:\n        tcmActions.length\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "50236659-45d1-4086-90cf-c3a2c524ec1c",
+      "name": "Prepare Mapping Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst europeanIndications =\n  input.european_profile?.indications ?? [];\n\nconst tcmIndications =\n  input.tcm_profile?.indications ?? [];\n\n// --------------------------------------------------\n// 1. Safety checks\n// --------------------------------------------------\n\nif (europeanIndications.length === 0) {\n  throw new Error(\n    'No European indications available for mapping.'\n  );\n}\n\nif (tcmIndications.length === 0) {\n  throw new Error(\n    'No TCM indications available for mapping.'\n  );\n}\n\n// --------------------------------------------------\n// 2. Define allowed mapping categories\n// --------------------------------------------------\n\nconst allowedCategories = [\n  'strong_overlap',\n  'partial_overlap',\n  'distinct_concepts',\n  'no_meaningful_mapping'\n];\n\n// --------------------------------------------------\n// 3. Rules for semantic mapping\n// --------------------------------------------------\n\nconst mappingRules = [\n  'Compare only the meaning of the two source indications.',\n  'Do not infer clinical efficacy.',\n  'Do not infer that cross-cultural similarity proves therapeutic effectiveness.',\n  'Do not reinterpret TCM terminology as biomedical terminology unless the source wording itself explicitly supports that interpretation.',\n  'Preserve the distinction between traditional use and established clinical evidence.',\n  'Use strong_overlap only when the two descriptions substantially refer to the same symptom or use concept.',\n  'Use partial_overlap when the concepts share a meaningful component but differ in scope, context, severity, or traditional framing.',\n  'Use distinct_concepts when both are understandable concepts but describe substantially different uses.',\n  'Use no_meaningful_mapping when there is no defensible semantic relationship between the two uses.',\n  'Base the assessment only on the supplied wording.'\n];\n\n// --------------------------------------------------\n// 4. Create all European × TCM comparison pairs\n// --------------------------------------------------\n\nconst tasks = [];\n\nfor (const european of europeanIndications) {\n\n  for (const tcm of tcmIndications) {\n\n    tasks.push({\n      mapping_metadata: {\n        mapping_version:\n          input.mapping_metadata?.mapping_version ??\n          'phythera_crosscultural_v1',\n\n        mapping_scope:\n          input.mapping_metadata?.mapping_scope ??\n          'traditional_indications',\n\n        plant:\n          input.mapping_metadata?.plant ??\n          null,\n\n        ema_run_id:\n          input.mapping_metadata?.ema_run_id ??\n          null,\n\n        tcm_run_id:\n          input.mapping_metadata?.tcm_run_id ??\n          null,\n\n        pair_id:\n          `${european.indication_id}__${tcm.indication_id}`\n      },\n\n      european_indication: {\n        indication_id:\n          european.indication_id,\n\n        source_system:\n          input.european_profile?.source_system ??\n          'European phytotherapy',\n\n        source_type:\n          input.european_profile?.source_type ??\n          'EMA/HMPC',\n\n        source_wording:\n          european.source_wording ??\n          null,\n\n        source_quote:\n          european.source_quote ??\n          null,\n\n        regulatory_basis:\n          european.regulatory_basis ??\n          null\n      },\n\n      tcm_indication: {\n        indication_id:\n          tcm.indication_id,\n\n        source_system:\n          input.tcm_profile?.source_system ??\n          'Traditional Chinese Medicine',\n\n        source_name:\n          input.tcm_profile?.source_name ??\n          null,\n\n        chinese_name:\n          input.tcm_profile?.chinese_name ??\n          null,\n\n        pinyin:\n          input.tcm_profile?.pinyin ??\n          null,\n\n        source_wording:\n          tcm.source_wording ??\n          null,\n\n        source_quote:\n          tcm.source_quote ??\n          null\n      },\n\n      mapping_config: {\n        allowed_categories:\n          allowedCategories,\n\n        rules:\n          mappingRules\n      }\n    });\n  }\n}\n\n// --------------------------------------------------\n// 5. Return one n8n item per comparison\n// --------------------------------------------------\n\nreturn tasks.map(task => ({\n  json: task\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "4aa93486-d3fa-45fa-9d12-30c5d86c439e",
+      "name": "Create Mapping Tasks"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $json;\n\nconst targetSchema = {\n  pair_id: null,\n\n  mapping_category: null,\n\n  semantic_overlap: null,\n\n  key_difference: null,\n\n  confidence: null,\n\n  convergence_claim: null,\n\n  mapping_basis: {\n    european_concept: null,\n    tcm_concept: null,\n    shared_concept: null\n  },\n\n  uncertainties: []\n};\n\nconst rules = [\n  'Compare only the semantic meaning of the supplied European and TCM indication wording.',\n  'Do not assess clinical efficacy.',\n  'Do not infer that semantic similarity proves therapeutic effectiveness.',\n  'Do not introduce biomedical interpretations that are not explicitly present in the supplied wording.',\n  'Preserve the distinction between traditional medical concepts and modern biomedical concepts.',\n  'Use strong_overlap only when both indications substantially describe the same symptom or use concept.',\n  'Use partial_overlap when there is a meaningful shared concept but the indications differ in scope, context, severity, or framing.',\n  'Use distinct_concepts when both indications are understandable but describe substantially different therapeutic or symptom concepts.',\n  'Use no_meaningful_mapping only when no defensible semantic relationship can be identified.',\n  'Confidence must be between 0 and 1.',\n  'Be conservative. When uncertain between two categories, choose the weaker overlap category.',\n  'Do not use outside knowledge.'\n];\n\nreturn {\n  json: {\n    mapping_metadata:\n      input.mapping_metadata,\n\n    european_indication:\n      input.european_indication,\n\n    tcm_indication:\n      input.tcm_indication,\n\n    mapping_config: {\n      allowed_categories:\n        input.mapping_config?.allowed_categories ?? [\n          'strong_overlap',\n          'partial_overlap',\n          'distinct_concepts',\n          'no_meaningful_mapping'\n        ],\n\n      rules,\n\n      target_schema:\n        targetSchema\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "bbfc9755-67ae-431a-9889-06de3a93a2f7",
+      "name": "Define Mapping Output Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a scientific semantic mapping system for PhyThera.\n\nYour task is to compare one European phytotherapy indication with one Traditional Chinese Medicine indication.\n\nYou are NOT evaluating whether the plant is clinically effective.\n\nYou are only evaluating whether the meanings of the two source use concepts overlap.\n\nPLANT:\n{{ $json.mapping_metadata.plant }}\n\nPAIR ID:\n{{ $json.mapping_metadata.pair_id }}\n\nEUROPEAN SOURCE:\n{{ $json.european_indication.source_system }}\n\nEUROPEAN INDICATION:\n{{ $json.european_indication.source_wording }}\n\nEUROPEAN REGULATORY BASIS:\n{{ $json.european_indication.regulatory_basis }}\n\nTCM SOURCE:\n{{ $json.tcm_indication.source_system }}\n\nTCM INDICATION:\n{{ $json.tcm_indication.source_wording }}\n\nALLOWED CATEGORIES:\n{{ $json.mapping_config.allowed_categories.join(', ') }}\n\nMAPPING RULES:\n- {{ $json.mapping_config.rules.join('\\n- ') }}\n\nCATEGORY DEFINITIONS:\n\nstrong_overlap:\nBoth source descriptions substantially refer to the same symptom or therapeutic-use concept. Differences are mainly wording or minor context.\n\npartial_overlap:\nThe two descriptions explicitly share at least one symptom or use concept,\nbut differ materially in context, scope, severity, cause, or traditional framing.\nThe shared concept must be directly supported by both source wordings.\n\ndistinct_concepts:\nThe descriptions refer to substantially different symptom or use concepts.\n\nno_meaningful_mapping:\nThere is no defensible semantic relationship between the descriptions.\n\nIMPORTANT:\n- Cross-cultural convergence does NOT equal clinical efficacy.\n- Do not translate TCM theory into Western biomedical mechanisms.\n- Do not use information outside the supplied source wording.\n- Be conservative.\n- Confidence must be a number between 0 and 1.\n- confidence describes confidence in the semantic classification, NOT confidence in therapeutic efficacy.\n\nTARGET JSON STRUCTURE:\n\n{{ JSON.stringify($json.mapping_config.target_schema, null, 2) }}\n\nOUTPUT RULES:\n- Return VALID JSON only.\n- No Markdown.\n- No code fences.\n- Preserve every key in the target schema.\n- Do not add keys.\n- pair_id must exactly equal the supplied PAIR ID.\n- mapping_category must exactly match one of the allowed categories.\n- semantic_overlap should briefly describe any shared meaning. Use null if none.\n- key_difference should briefly describe the most important distinction.\n- convergence_claim must be one of:\n  \"cross-cultural convergence\",\n  \"possible cross-cultural convergence\",\n  \"cross-cultural divergence\",\n  \"no cross-cultural mapping\"\n- shared_concept must be null when there is no meaningful shared concept.\n- Do not claim efficacy or clinical effectiveness.\n- Never place a term from one medical system in parentheses as an equivalent or translation of a term from the other system.\n- shared_concept must use neutral descriptive language whenever possible.\n- Do not label a TCM concept with an EMA, biomedical, or regulatory term unless that exact concept is explicitly present in both source wordings.\n- Similarity of context (for example \"debilitated patients\") alone is not sufficient for strong_overlap.\n- A shared concept must be explicitly present or directly expressed in BOTH source wordings.\n- Do not infer a shared concept from associated states, causes, severity, or possible consequences.\n- Do not treat words such as \"wasting\", \"collapse\", \"hypofunction\", \"internal heat\", or organ-specific dysfunction as equivalent to fatigue or weakness unless weakness/fatigue is explicitly stated in that source wording.\n- Contextual similarity alone is insufficient for partial_overlap.\n- If the only overlap requires an inferred intermediate concept, use distinct_concepts.\n\nReturn only the completed JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "01e796e7-31aa-4d60-9b93-15a84f630423",
+      "name": "AI Semantic Mapping"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        208
+      ],
+      "id": "2b0de382-5815-4a4d-8fcc-7bb23128f5b9",
+      "name": "OpenRouter Chat Model"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const context = $('Define Mapping Output Schema').item.json;\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Clean possible Markdown fences\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return String(value ?? '')\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/i, '')\n    .trim();\n}\n\n// --------------------------------------------------\n// 2. Parse AI output\n// --------------------------------------------------\n\nlet mappedData = null;\n\ntry {\n  mappedData = JSON.parse(\n    cleanJsonString($json.text)\n  );\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    path: '$',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 3. Generic schema validation\n// --------------------------------------------------\n\nfunction validateStructure(schema, value, path = '$') {\n\n  if (Array.isArray(schema)) {\n\n    if (!Array.isArray(value)) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        message: 'Expected array.'\n      });\n\n      return;\n    }\n\n    if (schema.length > 0) {\n      value.forEach((child, index) => {\n        validateStructure(\n          schema[0],\n          child,\n          `${path}[${index}]`\n        );\n      });\n    }\n\n    return;\n  }\n\n  if (\n    schema !== null &&\n    typeof schema === 'object'\n  ) {\n\n    if (\n      value === null ||\n      typeof value !== 'object' ||\n      Array.isArray(value)\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        message: 'Expected object.'\n      });\n\n      return;\n    }\n\n    const schemaKeys =\n      Object.keys(schema);\n\n    const valueKeys =\n      Object.keys(value);\n\n    for (const key of schemaKeys) {\n\n      if (!(key in value)) {\n\n        errors.push({\n          type: 'missing_key',\n          path: `${path}.${key}`,\n          message:\n            `Missing required key: ${key}`\n        });\n\n      } else {\n\n        validateStructure(\n          schema[key],\n          value[key],\n          `${path}.${key}`\n        );\n      }\n    }\n\n    for (const key of valueKeys) {\n\n      if (!(key in schema)) {\n\n        errors.push({\n          type: 'unexpected_key',\n          path: `${path}.${key}`,\n          message:\n            `Unexpected key: ${key}`\n        });\n      }\n    }\n\n    return;\n  }\n\n  // null in schema = scalar or null\n  if (\n    value !== null &&\n    typeof value === 'object'\n  ) {\n\n    errors.push({\n      type: 'type_mismatch',\n      path,\n      message:\n        'Expected scalar value or null.'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 4. Mapping-specific validation\n// --------------------------------------------------\n\nfunction validateMapping(data) {\n\n  if (!data) {\n    return;\n  }\n\n  const expectedPairId =\n    context.mapping_metadata?.pair_id;\n\n  // Pair ID must match input exactly\n  if (data.pair_id !== expectedPairId) {\n\n    errors.push({\n      type: 'pair_id_mismatch',\n      path: '$.pair_id',\n      message:\n        `Expected ${expectedPairId}, received ${data.pair_id}.`\n    });\n  }\n\n  // Allowed categories\n  const allowedCategories =\n    context.mapping_config\n      ?.allowed_categories ?? [];\n\n  if (\n    !allowedCategories.includes(\n      data.mapping_category\n    )\n  ) {\n\n    errors.push({\n      type: 'invalid_mapping_category',\n      path: '$.mapping_category',\n      message:\n        `Invalid mapping category: ${data.mapping_category}`\n    });\n  }\n\n  // Confidence\n  if (\n    typeof data.confidence !== 'number' ||\n    data.confidence < 0 ||\n    data.confidence > 1\n  ) {\n\n    errors.push({\n      type: 'invalid_confidence',\n      path: '$.confidence',\n      message:\n        'Confidence must be a number between 0 and 1.'\n    });\n  }\n\n  // Allowed convergence claims\n  const allowedClaims = [\n    'cross-cultural convergence',\n    'possible cross-cultural convergence',\n    'cross-cultural divergence',\n    'no cross-cultural mapping'\n  ];\n\n  if (\n    !allowedClaims.includes(\n      data.convergence_claim\n    )\n  ) {\n\n    errors.push({\n      type: 'invalid_convergence_claim',\n      path: '$.convergence_claim',\n      message:\n        `Invalid convergence claim: ${data.convergence_claim}`\n    });\n  }\n\n  // --------------------------------------------------\n  // 5. Logical consistency rules\n  // --------------------------------------------------\n\n  const category =\n    data.mapping_category;\n\n  const claim =\n    data.convergence_claim;\n\n  const sharedConcept =\n    data.mapping_basis?.shared_concept;\n\n  const semanticOverlap =\n    data.semantic_overlap;\n\n  // Strong overlap\n  if (category === 'strong_overlap') {\n\n    if (\n      claim !== 'cross-cultural convergence'\n    ) {\n      errors.push({\n        type: 'inconsistent_mapping',\n        path: '$.convergence_claim',\n        message:\n          'strong_overlap requires cross-cultural convergence.'\n      });\n    }\n\n    if (!sharedConcept) {\n      errors.push({\n        type: 'missing_shared_concept',\n        path:\n          '$.mapping_basis.shared_concept',\n        message:\n          'strong_overlap requires a shared concept.'\n      });\n    }\n\n    if (!semanticOverlap) {\n      errors.push({\n        type: 'missing_semantic_overlap',\n        path: '$.semantic_overlap',\n        message:\n          'strong_overlap requires semantic_overlap.'\n      });\n    }\n  }\n\n  // Partial overlap\n  if (category === 'partial_overlap') {\n\n    if (\n      claim !==\n      'possible cross-cultural convergence'\n    ) {\n      errors.push({\n        type: 'inconsistent_mapping',\n        path: '$.convergence_claim',\n        message:\n          'partial_overlap requires possible cross-cultural convergence.'\n      });\n    }\n\n    if (!sharedConcept) {\n      errors.push({\n        type: 'missing_shared_concept',\n        path:\n          '$.mapping_basis.shared_concept',\n        message:\n          'partial_overlap requires a shared concept.'\n      });\n    }\n\n    if (!semanticOverlap) {\n      errors.push({\n        type: 'missing_semantic_overlap',\n        path: '$.semantic_overlap',\n        message:\n          'partial_overlap requires semantic_overlap.'\n      });\n    }\n  }\n\n  // Distinct concepts\n  if (category === 'distinct_concepts') {\n\n    if (\n      claim !==\n      'cross-cultural divergence'\n    ) {\n      errors.push({\n        type: 'inconsistent_mapping',\n        path: '$.convergence_claim',\n        message:\n          'distinct_concepts requires cross-cultural divergence.'\n      });\n    }\n\n    if (sharedConcept !== null) {\n      errors.push({\n        type: 'unexpected_shared_concept',\n        path:\n          '$.mapping_basis.shared_concept',\n        message:\n          'distinct_concepts should have shared_concept = null.'\n      });\n    }\n\n    if (semanticOverlap !== null) {\n      warnings.push({\n        type: 'unexpected_semantic_overlap',\n        path: '$.semantic_overlap',\n        message:\n          'distinct_concepts normally should have semantic_overlap = null.'\n      });\n    }\n  }\n\n  // No meaningful mapping\n  if (\n    category ===\n    'no_meaningful_mapping'\n  ) {\n\n    if (\n      claim !==\n      'no cross-cultural mapping'\n    ) {\n      errors.push({\n        type: 'inconsistent_mapping',\n        path: '$.convergence_claim',\n        message:\n          'no_meaningful_mapping requires no cross-cultural mapping.'\n      });\n    }\n\n    if (sharedConcept !== null) {\n      errors.push({\n        type: 'unexpected_shared_concept',\n        path:\n          '$.mapping_basis.shared_concept',\n        message:\n          'no_meaningful_mapping requires shared_concept = null.'\n      });\n    }\n\n    if (semanticOverlap !== null) {\n      warnings.push({\n        type: 'unexpected_semantic_overlap',\n        path: '$.semantic_overlap',\n        message:\n          'no_meaningful_mapping normally should have semantic_overlap = null.'\n      });\n    }\n  }\n\n  // --------------------------------------------------\n  // 6. Uncertainties should be strings\n  // --------------------------------------------------\n\n  if (Array.isArray(data.uncertainties)) {\n\n    data.uncertainties.forEach(\n      (item, index) => {\n\n        if (typeof item !== 'string') {\n\n          errors.push({\n            type:\n              'invalid_uncertainty_type',\n\n            path:\n              `$.uncertainties[${index}]`,\n\n            message:\n              'Each uncertainty must be a string.'\n          });\n        }\n      }\n    );\n  }\n}\n\n// --------------------------------------------------\n// 7. Execute validation\n// --------------------------------------------------\n\nif (mappedData !== null) {\n\n  validateStructure(\n    context.mapping_config.target_schema,\n    mappedData\n  );\n\n  validateMapping(\n    mappedData\n  );\n}\n\n// --------------------------------------------------\n// 8. Determine final status\n// --------------------------------------------------\n\nlet status = 'pass';\n\nif (errors.length > 0) {\n\n  status = 'fail';\n\n} else if (warnings.length > 0) {\n\n  status = 'warning';\n}\n\n// --------------------------------------------------\n// 9. Output\n// --------------------------------------------------\n\nreturn {\n  json: {\n\n    mapping_metadata:\n      context.mapping_metadata,\n\n    european_indication:\n      context.european_indication,\n\n    tcm_indication:\n      context.tcm_indication,\n\n    schema_version:\n      context.mapping_metadata\n        ?.mapping_version ??\n      'phythera_crosscultural_v1',\n\n    validation: {\n      status,\n      error_count:\n        errors.length,\n\n      warning_count:\n        warnings.length,\n\n      errors,\n      warnings\n    },\n\n    mapped_data:\n      mappedData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "id": "7ba8b58e-6637-4546-9d98-5ef5a84e91f2",
+      "name": "Parse & Validate Mapping Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst sourceInput =\n  $('Prepare Mapping Input').first().json;\n\n\n// ============================================================\n// 1. Collect mapping results\n// ============================================================\n\nconst allResults =\n  items.map(item => item.json);\n\nif (allResults.length === 0) {\n  throw new Error(\n    'No mapping results received.'\n  );\n}\n\n\n// ============================================================\n// 2. Separate usable and failed mappings\n// ============================================================\n\nconst failedMappings =\n  allResults.filter(\n    item =>\n      item.validation?.status === 'fail'\n  );\n\nconst usableMappings =\n  allResults.filter(\n    item =>\n      ['pass', 'warning'].includes(\n        item.validation?.status\n      ) &&\n      item.mapped_data\n  );\n\n\n// Do not continue if EVERYTHING failed\nif (usableMappings.length === 0) {\n  throw new Error(\n    `All ${allResults.length} mapping result(s) failed validation.`\n  );\n}\n\n\n// ============================================================\n// 3. Extract clean validated mapping records\n// ============================================================\n\nconst cleanMappings =\n  usableMappings.map(item => ({\n\n    pair_id:\n      item.mapped_data.pair_id,\n\n    mapping_category:\n      item.mapped_data.mapping_category,\n\n    confidence:\n      item.mapped_data.confidence,\n\n    convergence_claim:\n      item.mapped_data.convergence_claim,\n\n    semantic_overlap:\n      item.mapped_data.semantic_overlap,\n\n    key_difference:\n      item.mapped_data.key_difference,\n\n    mapping_basis:\n      item.mapped_data.mapping_basis,\n\n    uncertainties:\n      item.mapped_data.uncertainties ?? [],\n\n    european_indication: {\n      indication_id:\n        item.european_indication.indication_id,\n\n      source_wording:\n        item.european_indication.source_wording,\n\n      regulatory_basis:\n        item.european_indication.regulatory_basis\n    },\n\n    tcm_indication: {\n      indication_id:\n        item.tcm_indication.indication_id,\n\n      source_wording:\n        item.tcm_indication.source_wording\n    },\n\n    validation_status:\n      item.validation.status\n  }));\n\n\n// ============================================================\n// 4. Preserve failed mapping diagnostics\n// ============================================================\n\nconst failedMappingDiagnostics =\n  failedMappings.map(item => ({\n\n    pair_id:\n      item.mapping_metadata?.pair_id ??\n      null,\n\n    european_indication:\n      item.european_indication\n        ?.source_wording ?? null,\n\n    tcm_indication:\n      item.tcm_indication\n        ?.source_wording ?? null,\n\n    errors:\n      item.validation?.errors ?? [],\n\n    warnings:\n      item.validation?.warnings ?? []\n  }));\n\n\n// ============================================================\n// 5. Count categories\n// ============================================================\n\nconst counts = {\n  strong_overlap: 0,\n  partial_overlap: 0,\n  distinct_concepts: 0,\n  no_meaningful_mapping: 0\n};\n\nfor (const mapping of cleanMappings) {\n\n  if (\n    Object.prototype.hasOwnProperty.call(\n      counts,\n      mapping.mapping_category\n    )\n  ) {\n    counts[mapping.mapping_category]++;\n  }\n}\n\n\n// ============================================================\n// 6. Identify convergence candidates\n// ============================================================\n\nconst categoryPriority = {\n  strong_overlap: 4,\n  partial_overlap: 3,\n  distinct_concepts: 2,\n  no_meaningful_mapping: 1\n};\n\nconst convergenceMappings =\n  cleanMappings\n    .filter(mapping =>\n      mapping.mapping_category ===\n        'strong_overlap' ||\n      mapping.mapping_category ===\n        'partial_overlap'\n    )\n    .sort((a, b) => {\n\n      const categoryDifference =\n        categoryPriority[\n          b.mapping_category\n        ] -\n        categoryPriority[\n          a.mapping_category\n        ];\n\n      if (categoryDifference !== 0) {\n        return categoryDifference;\n      }\n\n      return (\n        Number(b.confidence ?? 0) -\n        Number(a.confidence ?? 0)\n      );\n    });\n\n\n// ============================================================\n// 7. Strongest convergence\n// ============================================================\n\nconst strongestConvergence =\n  convergenceMappings.length > 0\n    ? convergenceMappings[0]\n    : null;\n\n\n// ============================================================\n// 8. High-level interpretation\n// ============================================================\n\nlet overallPattern =\n  'predominantly_distinct';\n\nif (counts.strong_overlap > 0) {\n\n  overallPattern =\n    'cross_cultural_convergence_detected';\n\n} else if (counts.partial_overlap > 0) {\n\n  overallPattern =\n    'limited_cross_cultural_convergence';\n\n} else if (\n  counts.distinct_concepts === 0 &&\n  counts.no_meaningful_mapping > 0\n) {\n\n  overallPattern =\n    'no_cross_cultural_mapping_detected';\n}\n\n\n// ============================================================\n// 9. Overall validation status\n// ============================================================\n\nconst overallValidationStatus =\n  failedMappings.length > 0\n    ? 'warning'\n    : 'pass';\n\n\n// ============================================================\n// 10. Build final profile\n// ============================================================\n\nconst profile = {\n\n  profile_metadata: {\n\n    profile_type:\n      'cross_cultural_mapping',\n\n    schema_version:\n      sourceInput.mapping_metadata\n        ?.mapping_version ??\n      'phythera_crosscultural_v1',\n\n    plant:\n      sourceInput.mapping_metadata\n        ?.plant ??\n      null,\n\n    ema_run_id:\n      sourceInput.mapping_metadata\n        ?.ema_run_id ??\n      null,\n\n    tcm_run_id:\n      sourceInput.mapping_metadata\n        ?.tcm_run_id ??\n      null,\n\n    mapping_scope:\n      sourceInput.mapping_metadata\n        ?.mapping_scope ??\n      'traditional_indications',\n\n    validation_status:\n      overallValidationStatus\n  },\n\n\n  source_context: {\n\n    european: {\n\n      source_system:\n        sourceInput.european_profile\n          ?.source_system ??\n        null,\n\n      source_type:\n        sourceInput.european_profile\n          ?.source_type ??\n        null,\n\n      source_title:\n        sourceInput.european_profile\n          ?.source_title ??\n        null,\n\n      source_id:\n        sourceInput.european_profile\n          ?.source_id ??\n        null,\n\n      source_url:\n        sourceInput.european_profile\n          ?.source_url ??\n        null,\n\n      regulatory_context:\n        sourceInput.european_profile\n          ?.regulatory_context ??\n        {}\n    },\n\n\n    tcm: {\n\n      source_system:\n        sourceInput.tcm_profile\n          ?.source_system ??\n        null,\n\n      source_name:\n        sourceInput.tcm_profile\n          ?.source_name ??\n        null,\n\n      source_url:\n        sourceInput.tcm_profile\n          ?.source_url ??\n        null,\n\n      chinese_name:\n        sourceInput.tcm_profile\n          ?.chinese_name ??\n        null,\n\n      pinyin:\n        sourceInput.tcm_profile\n          ?.pinyin ??\n        null,\n\n      medicinal_group:\n        sourceInput.tcm_profile\n          ?.medicinal_group ??\n        null\n    }\n  },\n\n\n  mapping_summary: {\n\n    total_comparisons:\n      allResults.length,\n\n    valid_comparisons:\n      cleanMappings.length,\n\n    failed_comparisons:\n      failedMappings.length,\n\n    category_counts:\n      counts,\n\n    convergence_count:\n      counts.strong_overlap +\n      counts.partial_overlap,\n\n    overall_pattern:\n      overallPattern\n  },\n\n\n  strongest_convergence:\n    strongestConvergence,\n\n  convergence_candidates:\n    convergenceMappings,\n\n  mappings:\n    cleanMappings,\n\n  failed_mappings:\n    failedMappingDiagnostics,\n\n\n  interpretation_guardrails: [\n    'Semantic convergence does not demonstrate clinical efficacy.',\n    'Traditional-use concepts are preserved in their source-specific context.',\n    'Cross-cultural mapping is based on supplied source wording only.',\n    'Clinical evidence must be evaluated separately from semantic convergence.'\n  ]\n};\n\n\nreturn [\n  {\n    json: profile\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        0
+      ],
+      "id": "cbb6ed40-386c-450b-a302-f114ced4f03f",
+      "name": "Assemble Cross-Cultural Profile"
+    },
+    {
+      "parameters": {
+        "tableId": "mapping_runs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "plant_id",
+              "fieldValue": "={{ $('Lookup Plant').first().json.id }}"
+            },
+            {
+              "fieldId": "ema_run_id",
+              "fieldValue": "={{ $json.profile_metadata.ema_run_id }}"
+            },
+            {
+              "fieldId": "tcm_run_id",
+              "fieldValue": "={{ $json.profile_metadata.tcm_run_id }}"
+            },
+            {
+              "fieldId": "mapping_version",
+              "fieldValue": "={{ $json.profile_metadata.schema_version }}"
+            },
+            {
+              "fieldId": "validation_status",
+              "fieldValue": "={{ $json.profile_metadata.validation_status }}"
+            },
+            {
+              "fieldId": "model_provider",
+              "fieldValue": "OpenRouter"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "nvidia/nemotron-3.5-super-vl:free"
+            },
+            {
+              "fieldId": "prompt_version",
+              "fieldValue": "crosscultural_mapping_v1"
+            },
+            {
+              "fieldId": "profile_json",
+              "fieldValue": "={{ JSON.stringify($json) }}"
+            },
+            {
+              "fieldId": "validation_summary",
+              "fieldValue": "={{ {   total_comparisons: $json.mapping_summary.total_comparisons,   category_counts: $json.mapping_summary.category_counts,   convergence_count: $json.mapping_summary.convergence_count,   overall_pattern: $json.mapping_summary.overall_pattern } }}"
+            },
+            {
+              "fieldId": "human_review_status",
+              "fieldValue": "pending"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ {   pipeline: \"PhyThera Cross-Cultural Mapping\",   mapping_scope: $json.profile_metadata.mapping_scope,   ai_generated: true,   source_grounded: true,   clinical_efficacy_inferred: false } }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2608,
+        0
+      ],
+      "id": "33351e2d-d899-4433-b09c-be04e302cda6",
+      "name": "Store Mapping Run"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -16,
+        208
+      ],
+      "id": "2e00ad41-6503-4ce2-882a-762427d35da1",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Define Mapping Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Mapping Target": {
+      "main": [
+        [
+          {
+            "node": "Lookup Plant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Plant": {
+      "main": [
+        [
+          {
+            "node": "Lookup EMA Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup EMA Run": {
+      "main": [
+        [
+          {
+            "node": "Lookup TCM Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup TCM Run": {
+      "main": [
+        [
+          {
+            "node": "Prepare Mapping Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Mapping Input": {
+      "main": [
+        [
+          {
+            "node": "Create Mapping Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Mapping Tasks": {
+      "main": [
+        [
+          {
+            "node": "Define Mapping Output Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Mapping Output Schema": {
+      "main": [
+        [
+          {
+            "node": "AI Semantic Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Semantic Mapping",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Semantic Mapping": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Mapping Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Mapping Output": {
+      "main": [
+        [
+          {
+            "node": "Assemble Cross-Cultural Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Cross-Cultural Profile": {
+      "main": [
+        [
+          {
+            "node": "Store Mapping Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Define Mapping Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": []
+}

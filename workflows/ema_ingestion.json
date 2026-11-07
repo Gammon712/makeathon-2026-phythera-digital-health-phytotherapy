@@ -1,0 +1,721 @@
+{
+  "name": "PhyThera – EMA Ingestion v0.1",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b88763f7-7f46-492e-bcf1-138ca7395f03",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5975d858-5366-486f-b91e-13360bc46284",
+              "name": "plant",
+              "value": "={{ $json.scientific_name ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "1793ed2f-3bf7-437a-a4e2-59eed35c1c38",
+              "name": "source_type",
+              "value": "EMA",
+              "type": "string"
+            },
+            {
+              "id": "28eddf20-3c77-4341-bd97-794032b12bc2",
+              "name": "document_type",
+              "value": "HMPC assessment report",
+              "type": "string"
+            },
+            {
+              "id": "4515e935-28f7-475d-9375-e8edc4466fe8",
+              "name": "source_url",
+              "value": "={{ $json.ema_source_url ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "2caba15b-9cb3-4d6f-adb6-eaf440117813",
+              "name": "indication_context",
+              "value": "={{ $json.indication_context ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "01dca8ec-a1aa-4cf8-885e-f2e55e514354",
+              "name": "plant_id",
+              "value": "={{ $json.plant_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "8ac4d8b6-29c2-4d19-8954-a2f5f5c0c4a6",
+      "name": "Define Source"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.source_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "e66ace71-c213-4562-98c0-b910b026db85",
+      "name": "Download EMA Document"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "cd93efb3-5f58-4364-a061-246f807db304",
+      "name": "Extract EMA Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.text ?? '';\n\n// Finds a real section heading that stands alone on its line.\n// This avoids matching the same headings in the table of contents.\nfunction findHeading(pattern, startAt = 0) {\n  const searchText = text.slice(startAt);\n  const regex = new RegExp(`^${pattern}\\\\s*$`, 'm');\n  const match = regex.exec(searchText);\n\n  if (!match) return -1;\n\n  return startAt + match.index;\n}\n\nfunction extractSection(startPattern, endPattern) {\n  const start = findHeading(startPattern);\n\n  if (start === -1) {\n    return null;\n  }\n\n  const startLineEnd = text.indexOf('\\n', start);\n  const contentStart =\n    startLineEnd === -1 ? start : startLineEnd + 1;\n\n  const end = endPattern\n    ? findHeading(endPattern, contentStart)\n    : text.length;\n\n  return text\n    .slice(\n      contentStart,\n      end === -1 ? text.length : end\n    )\n    .trim();\n}\n\nconst sections = {\n  introduction: extractSection(\n    '1\\\\. Introduction',\n    '2\\\\. Data on medicinal use'\n  ),\n\n  medicinal_use: extractSection(\n    '2\\\\. Data on medicinal use',\n    '3\\\\. Non-Clinical Data'\n  ),\n\n  nonclinical_data: extractSection(\n    '3\\\\. Non-Clinical Data',\n    '4\\\\. Clinical Data'\n  ),\n\n  clinical_data: extractSection(\n    '4\\\\. Clinical Data',\n    '5\\\\. Clinical Safety\\\\/Pharmacovigilance'\n  ),\n\n  clinical_safety: extractSection(\n    '5\\\\. Clinical Safety\\\\/Pharmacovigilance',\n    '6\\\\. Overall conclusions'\n  ),\n\n  overall_conclusions: extractSection(\n    '6\\\\. Overall conclusions',\n    'Annex'\n  )\n};\n\nreturn {\n  json: {\n    document_metadata: {\n      title: $json.info?.Title ?? null,\n      author: $json.info?.Author ?? null,\n      document_id:\n        $json.info?.Custom?.DM_DocRefId ?? null,\n      pages: $json.numpages ?? null\n    },\n\n    section_lengths: Object.fromEntries(\n      Object.entries(sections).map(([key, value]) => [\n        key,\n        value?.length ?? 0\n      ])\n    ),\n\n    sections\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "0d59a33b-8eca-41b5-ad76-01964a886535",
+      "name": "Prepare EMA Sections"
+    },
+    {
+      "parameters": {
+        "jsCode": "const metadata = $json.document_metadata ?? {};\nconst sections = $json.sections ?? {};\n\nfunction extractBetween(text, startMarker, endMarker = null) {\n  if (!text) return null;\n\n  const start = text.indexOf(startMarker);\n\n  if (start === -1) {\n    return null;\n  }\n\n  const contentStart = start + startMarker.length;\n\n  const end = endMarker\n    ? text.indexOf(endMarker, contentStart)\n    : text.length;\n\n  return text\n    .slice(\n      contentStart,\n      end === -1 ? text.length : end\n    )\n    .trim();\n}\n\nconst introduction = sections.introduction ?? '';\nconst medicinalUse = sections.medicinal_use ?? '';\nconst clinicalData = sections.clinical_data ?? '';\nconst clinicalSafety = sections.clinical_safety ?? '';\nconst overallConclusions = sections.overall_conclusions ?? '';\n\nconst chunks = {\n\n  identity_and_preparations: extractBetween(\n    introduction,\n    '1.1. Description of the herbal substance(s), herbal preparation(s) or\\ncombinations thereof',\n    '• Relevant constituents for this assessment report'\n  ),\n\n  constituents: extractBetween(\n    introduction,\n    '• Relevant constituents for this assessment report',\n    '1.2. Search and assessment methodology'\n  ),\n\n  medicinal_use_conclusion: extractBetween(\n    medicinalUse,\n    '2.3. Overall conclusions on medicinal use'\n  ),\n\n  clinical_efficacy_conclusion: extractBetween(\n    clinicalData,\n    '4.4. Overall conclusions on clinical pharmacology and efficacy'\n  ),\n\n  contraindications: extractBetween(\n    clinicalSafety,\n    '5.5.2. Contraindications',\n    '5.5.3. Special warnings and precautions for use'\n  ),\n\n  precautions: extractBetween(\n    clinicalSafety,\n    '5.5.3. Special warnings and precautions for use',\n    '5.5.4. Drug interactions and other forms of interaction'\n  ),\n\n  interactions: extractBetween(\n    clinicalSafety,\n    '5.5.4. Drug interactions and other forms of interaction',\n    '5.5.5. Fertility, pregnancy and lactation'\n  ),\n\n  pregnancy_lactation: extractBetween(\n    clinicalSafety,\n    '5.5.5. Fertility, pregnancy and lactation',\n    '5.5.6. Overdose'\n  ),\n\n  clinical_safety_conclusion: extractBetween(\n    clinicalSafety,\n    '5.6. Overall conclusions on clinical safety'\n  ),\n\n  overall_conclusion: overallConclusions.trim()\n};\n\nconst chunkLengths = Object.fromEntries(\n  Object.entries(chunks).map(([key, value]) => [\n    key,\n    value?.length ?? 0\n  ])\n);\n\nconst missingChunks = Object.entries(chunks)\n  .filter(([key, value]) => !value || value.length === 0)\n  .map(([key]) => key);\n\nreturn {\n  json: {\n    document_metadata: metadata,\n\n    processing: {\n      parser: 'phythera_ema_chunker_v1',\n      chunks_created: Object.keys(chunks).length,\n      missing_chunks: missingChunks\n    },\n\n    chunk_lengths: chunkLengths,\n\n    chunks\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "902632fc-5432-4e41-8233-e58ca6905602",
+      "name": "Create PhyThera Chunks"
+    },
+    {
+      "parameters": {
+        "jsCode": "const metadata = $json.document_metadata ?? {};\nconst chunks = $json.chunks ?? {};\n\nconst tasks = [\n  {\n    task_type: 'identity',\n    source_section: 'identity_and_preparations',\n    text: chunks.identity_and_preparations,\n    expected_fields: [\n      'scientific_name',\n      'herbal_drug_name',\n      'plant_part',\n      'pharmacopoeia_monographs',\n      'preparations',\n      'der',\n      'extraction_solvents'\n    ]\n  },\n\n  {\n    task_type: 'constituents',\n    source_section: 'constituents + overall_conclusion',\n\ntext: [\n  chunks.constituents,\n  '',\n  'OVERALL EMA CONCLUSION:',\n  chunks.overall_conclusion\n].join('\\n'),\n    expected_fields: [\n      'constituent_groups',\n      'named_constituents',\n      'analytical_markers',\n      'active_markers',\n      'therapeutic_activity_status'\n    ]\n  },\n\n  {\n    task_type: 'medicinal_use',\n    source_section: 'medicinal_use_conclusion',\n    text: chunks.medicinal_use_conclusion,\n    expected_fields: [\n      'indication',\n      'regulatory_status',\n      'traditional_use_status',\n      'well_established_use_status',\n      'duration_of_use',\n      'medicinal_use_summary'\n    ]\n  },\n\n  {\n    task_type: 'clinical_efficacy',\n    source_section: 'clinical_efficacy_conclusion',\n    text: chunks.clinical_efficacy_conclusion,\n    expected_fields: [\n      'clinical_evidence_summary',\n      'study_heterogeneity',\n      'methodological_limitations',\n      'well_established_use_supported',\n      'overall_efficacy_conclusion'\n    ]\n  },\n\n  {\n    task_type: 'safety',\n    source_section: 'clinical_safety',\n    text: [\n      'CONTRAINDICATIONS:',\n      chunks.contraindications,\n      '',\n      'PRECAUTIONS:',\n      chunks.precautions,\n      '',\n      'INTERACTIONS:',\n      chunks.interactions,\n      '',\n      'PREGNANCY AND LACTATION:',\n      chunks.pregnancy_lactation,\n      '',\n      'CLINICAL SAFETY CONCLUSION:',\n      chunks.clinical_safety_conclusion\n    ].join('\\n'),\n    expected_fields: [\n      'contraindications',\n      'precautions',\n      'interactions',\n      'age_restrictions',\n      'pregnancy_lactation',\n      'adverse_effects',\n      'overall_safety_summary'\n    ]\n  },\n\n  {\n    task_type: 'overall_assessment',\n    source_section: 'overall_conclusion',\n    text: chunks.overall_conclusion,\n    expected_fields: [\n      'overall_regulatory_conclusion',\n      'clinical_evidence_strength',\n      'constituent_activity_status',\n      'analytical_marker_status',\n      'research_gaps'\n    ]\n  }\n];\n\nreturn tasks.map(task => ({\n  json: {\n    document_metadata: metadata,\n    task_type: task.task_type,\n    source_section: task.source_section,\n    expected_fields: task.expected_fields,\n    text: task.text,\n    character_count: task.text?.length ?? 0\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "c6348828-4501-4620-bcc6-d1574c801892",
+      "name": "Prepare Extraction Tasks"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const taskType = $json.task_type;\n\nconst commonRules = [\n  'Use only information explicitly supported by the provided source text.',\n  'Do not infer missing information.',\n  'Return null when a scalar value is not supported.',\n  'Return an empty array when a list is not supported.',\n  'Preserve regulatory terminology.',\n  'Do not convert analytical markers into pharmacologically active constituents.',\n  'Do not convert traditional use into established clinical efficacy.',\n  'Every important extracted claim must include a short supporting source quote.',\n  'Quotes must be copied from the supplied text and should be as short as possible.'\n];\n\nconst schemas = {\n\n  identity: {\n    scientific_name: null,\n    herbal_drug_name: null,\n    plant_part: null,\n\n    pharmacopoeia_monographs: [\n      {\n        pharmacopoeia: null,\n        monograph_number: null,\n        monograph_name: null,\n        source_quote: null\n      }\n    ],\n\n    preparations: [\n      {\n        preparation_type: null,\n        plant_material: null,\n        der: null,\n        extraction_solvent: null,\n        quality_standard: null,\n        source_quote: null\n      }\n    ],\n\n    uncertainties: []\n  },\n\n  constituents: {\n    constituent_groups: [\n      {\n        name: null,\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    constituents: [\n      {\n        name: null,\n        chemical_class: null,\n        role_in_source: null,\n        activity_status: null,\n        source_quote: null\n      }\n    ],\n\n    analytical_markers: [\n      {\n        name: null,\n        source_quote: null\n      }\n    ],\n\n    active_markers: [],\n\n    therapeutic_activity_status: {\n      status: null,\n      explanation: null,\n      source_quote: null\n    },\n\n    uncertainties: []\n  },\n\n  medicinal_use: {\n    indications: [\n      {\n        source_wording: null,\n        regulatory_basis: null,\n        source_quote: null\n      }\n    ],\n\n    traditional_use_status: null,\n    well_established_use_status: null,\n    duration_of_use: null,\n\n    medicinal_use_summary: null,\n\n    supporting_quotes: [],\n    uncertainties: []\n  },\n\n  clinical_efficacy: {\n    investigated_areas: [],\n\n    evidence_summary: null,\n\n    study_heterogeneity: {\n      present: null,\n      explanation: null\n    },\n\n    methodological_limitations: [],\n\n    well_established_use_supported: null,\n\n    overall_efficacy_conclusion: null,\n\n    supporting_quotes: [],\n    uncertainties: []\n  },\n\n  safety: {\n    contraindications: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    precautions: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    interactions: [\n      {\n        drug_or_target: null,\n        interaction_type: null,\n        evidence_context: null,\n        clinical_relevance: null,\n        source_quote: null\n      }\n    ],\n\n    age_restrictions: [\n      {\n        population: null,\n        recommendation: null,\n        reason: null,\n        source_quote: null\n      }\n    ],\n\n    pregnancy_lactation: {\n      recommendation: null,\n      reason: null,\n      source_quote: null\n    },\n\n    adverse_effects: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    overall_safety_summary: null,\n\n    uncertainties: []\n  },\n\n  overall_assessment: {\n    regulatory_conclusion: null,\n\n    clinical_evidence_strength: {\n      assessment: null,\n      explanation: null,\n      source_quote: null\n    },\n\n    constituent_activity_status: {\n      assessment: null,\n      source_quote: null\n    },\n\n    analytical_marker_status: {\n      markers: [],\n      source_quote: null\n    },\n\n    research_gaps: [\n      {\n        gap: null,\n        source_quote: null\n      }\n    ],\n\n    overall_summary: null,\n\n    uncertainties: []\n  }\n};\n\nif (!schemas[taskType]) {\n  throw new Error(`Unknown task_type: ${taskType}`);\n}\n\nreturn {\n  json: {\n    ...$json,\n\n    extraction_config: {\n      schema_version: 'phythera_ema_v1',\n      rules: commonRules,\n      target_schema: schemas[taskType]\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "76ff0c09-0428-42cd-b6f9-9f758711c541",
+      "name": "Define Output Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a biomedical evidence extraction system for PhyThera,\na professional medicinal-plant evidence mapping platform.\n\nYour task is to extract structured information from an authoritative\nsource document.\n\nTASK TYPE:\n{{ $json.task_type }}\n\nEXTRACTION RULES:\n- {{ $json.extraction_config.rules.join('\\n- ') }}\n\nADDITIONAL RULES:\n- Return VALID JSON only.\n- Do not use Markdown.\n- Do not wrap the JSON in ```json fences.\n- Preserve every key and nesting level of the target schema.\n- Do not add new keys.\n- Replace null values only when the source explicitly supports a value.\n- Keep null when a scalar value is unsupported.\n- Keep [] when a list is unsupported.\n- source_quote must contain the shortest verbatim passage that directly supports the extracted claim, preferably no more than 250 characters.\n- Keep source quotes concise.\n- Do not use outside knowledge.\n- Do not infer therapeutic activity from chemical presence.\n- Traditional use must not be presented as established clinical efficacy.\n- If a pharmacopoeial monograph is mentioned anywhere in the source text, include it in pharmacopoeia_monographs, even if it is also referenced as a quality standard for a preparation.\n- Every source_quote MUST be copied exactly as one contiguous substring from SOURCE TEXT.\n- Never paraphrase, summarize, correct spelling, normalize punctuation, or combine separate passages inside source_quote.\n- Do not use ellipses (...) inside source_quote.\n- Prefer a single short sentence or sentence fragment, ideally below 200 characters.\n- If no exact supporting passage exists, use null instead of inventing a quote.\n\nTARGET JSON STRUCTURE:\n{{ JSON.stringify($json.extraction_config.target_schema, null, 2) }}\n\nSOURCE TEXT:\n{{ $json.text }}\n\nReturn only the completed JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "6cb28fcf-d699-4a38-b7a3-0b384665d218",
+      "name": "AI Structured Extraction"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        208
+      ],
+      "id": "deb88d15-4e75-41ea-89e5-de5d2e375d7e",
+      "name": "OpenRouter Chat Model"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Get the original task + target schema.\n// During development we currently have the Limit node in between.\nconst context = $('Define Output Schema').item.json;\n\nconst rawOutput = $json.text ?? '';\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Clean and parse model output\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return value\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/, '')\n    .trim();\n}\n\nlet extractedData = null;\n\ntry {\n  extractedData = JSON.parse(cleanJsonString(rawOutput));\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 2. Validate structure against target schema\n// --------------------------------------------------\n\nfunction validateStructure(expected, actual, path = '$') {\n\n  // null in our schema means:\n  // scalar value or null is expected\n  if (expected === null) {\n\n    if (\n      actual !== null &&\n      typeof actual === 'object'\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'scalar_or_null',\n        actual: Array.isArray(actual) ? 'array' : 'object'\n      });\n    }\n\n    return;\n  }\n\n  // Arrays\n  if (Array.isArray(expected)) {\n\n    if (!Array.isArray(actual)) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'array',\n        actual: typeof actual\n      });\n      return;\n    }\n\n    // If schema contains an example object,\n    // validate every returned item against it\n    if (expected.length > 0 && actual.length > 0) {\n      actual.forEach((item, index) => {\n        validateStructure(\n          expected[0],\n          item,\n          `${path}[${index}]`\n        );\n      });\n    }\n\n    return;\n  }\n\n  // Objects\n  if (\n    typeof expected === 'object' &&\n    expected !== null\n  ) {\n\n    if (\n      typeof actual !== 'object' ||\n      actual === null ||\n      Array.isArray(actual)\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'object',\n        actual:\n          actual === null\n            ? 'null'\n            : Array.isArray(actual)\n            ? 'array'\n            : typeof actual\n      });\n\n      return;\n    }\n\n    const expectedKeys = Object.keys(expected);\n    const actualKeys = Object.keys(actual);\n\n    // Missing keys\n    for (const key of expectedKeys) {\n      if (!(key in actual)) {\n        errors.push({\n          type: 'missing_key',\n          path: `${path}.${key}`\n        });\n      }\n    }\n\n    // Unexpected keys\n    for (const key of actualKeys) {\n      if (!(key in expected)) {\n        errors.push({\n          type: 'unexpected_key',\n          path: `${path}.${key}`\n        });\n      }\n    }\n\n    // Recursively validate expected keys\n    for (const key of expectedKeys) {\n      if (key in actual) {\n        validateStructure(\n          expected[key],\n          actual[key],\n          `${path}.${key}`\n        );\n      }\n    }\n  }\n}\n\n// --------------------------------------------------\n// 3. Scientific / extraction-quality checks\n// --------------------------------------------------\n\nfunction inspectQuotes(value, path = '$') {\n\n  if (Array.isArray(value)) {\n    value.forEach((item, index) =>\n      inspectQuotes(item, `${path}[${index}]`)\n    );\n    return;\n  }\n\n  if (\n    typeof value === 'object' &&\n    value !== null\n  ) {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      if (\n        key === 'source_quote' &&\n        typeof child === 'string'\n      ) {\n\n        if (child.length > 350) {\n          warnings.push({\n            type: 'long_source_quote',\n            path: `${path}.${key}`,\n            characters: child.length,\n            message:\n              'Source quote is longer than necessary.'\n          });\n        }\n      }\n\n      inspectQuotes(child, `${path}.${key}`);\n    }\n  }\n}\n\n// --------------------------------------------------\n// 4. Cross-field consistency check for identity\n// --------------------------------------------------\n\nfunction checkIdentityConsistency(data) {\n\n  if (context.task_type !== 'identity') {\n    return;\n  }\n\n  const monographs =\n    data.pharmacopoeia_monographs ?? [];\n\n  const monographNumbers = new Set(\n    monographs\n      .map(item => item?.monograph_number)\n      .filter(Boolean)\n      .map(String)\n  );\n\n  const preparations =\n    data.preparations ?? [];\n\n  for (const preparation of preparations) {\n\n    const qualityStandard =\n      preparation?.quality_standard;\n\n    if (typeof qualityStandard !== 'string') {\n      continue;\n    }\n\n    const match =\n      qualityStandard.match(/monograph\\s+(\\d+)/i);\n\n    if (\n      match &&\n      !monographNumbers.has(match[1])\n    ) {\n      warnings.push({\n        type: 'cross_field_inconsistency',\n        field: 'pharmacopoeia_monographs',\n        detected_monograph: match[1],\n        message:\n          `Monograph ${match[1]} appears in a preparation but is not listed in pharmacopoeia_monographs.`\n      });\n    }\n  }\n}\n\n// --------------------------------------------------\n// Run validation\n// --------------------------------------------------\n\nif (extractedData !== null) {\n\n  validateStructure(\n    context.extraction_config.target_schema,\n    extractedData\n  );\n\n  inspectQuotes(extractedData);\n\n  checkIdentityConsistency(extractedData);\n\n  const normalizedSource =\n    normalizeText(context.text);\n\n  checkQuoteGrounding(\n    extractedData,\n    normalizedSource\n  );\n}\n\n/// --------------------------------------------------\n// 5. Verify that source quotes are grounded\n//    in the supplied EMA text\n// --------------------------------------------------\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n\n    // Unicode normalization\n    .normalize('NFKC')\n\n    // Remove soft hyphens\n    .replace(/\\u00AD/g, '')\n\n    // Undo PDF line-break hyphenation\n    // Example: \"well-\\nestablished\" → \"well-established\"\n    .replace(/([A-Za-z])-\\s*\\n\\s*([A-Za-z])/g, '$1-$2')\n\n    // Normalize typographic quotes\n    .replace(/[“”]/g, '\"')\n    .replace(/[‘’]/g, \"'\")\n\n    // Normalize different dash characters\n    .replace(/[‐-‒–—−]/g, '-')\n\n    // Normalize non-breaking spaces\n    .replace(/\\u00A0/g, ' ')\n\n    // Collapse whitespace\n    .replace(/\\s+/g, ' ')\n\n    .trim()\n    .toLowerCase();\n}\n\nfunction checkQuoteGrounding(\n  value,\n  normalizedSource,\n  path = '$'\n) {\n\n  if (Array.isArray(value)) {\n    value.forEach((item, index) =>\n      checkQuoteGrounding(\n        item,\n        normalizedSource,\n        `${path}[${index}]`\n      )\n    );\n    return;\n  }\n\n  if (\n    typeof value === 'object' &&\n    value !== null\n  ) {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      // Individual source_quote fields\n      if (\n        key === 'source_quote' &&\n        typeof child === 'string' &&\n        child.trim().length > 0\n      ) {\n\n        const normalizedQuote =\n          normalizeText(child);\n\n        if (\n          !normalizedSource.includes(\n            normalizedQuote\n          )\n        ) {\n          errors.push({\n            type: 'ungrounded_source_quote',\n            path: `${path}.${key}`,\n            message:\n              'The quoted evidence could not be found verbatim in the supplied source text.'\n          });\n        }\n      }\n\n      // supporting_quotes arrays\n      if (\n        key === 'supporting_quotes' &&\n        Array.isArray(child)\n      ) {\n\n        child.forEach((quote, index) => {\n\n          if (\n            typeof quote === 'string' &&\n            quote.trim().length > 0\n          ) {\n\n            const normalizedQuote =\n              normalizeText(quote);\n\n            if (\n              !normalizedSource.includes(\n                normalizedQuote\n              )\n            ) {\n              errors.push({\n                type: 'ungrounded_supporting_quote',\n                path:\n                  `${path}.${key}[${index}]`,\n                message:\n                  'Supporting quote could not be found verbatim in the supplied source text.'\n              });\n            }\n          }\n        });\n      }\n\n      checkQuoteGrounding(\n        child,\n        normalizedSource,\n        `${path}.${key}`\n      );\n    }\n  }\n}\n\n// --------------------------------------------------\n// Determine overall status\n// --------------------------------------------------\n\nlet validationStatus = 'pass';\n\nif (errors.length > 0) {\n  validationStatus = 'fail';\n} else if (warnings.length > 0) {\n  validationStatus = 'warning';\n}\n\n// --------------------------------------------------\n// Return real structured JSON\n// --------------------------------------------------\n\nreturn {\n  json: {\n\n    document_metadata:\n      context.document_metadata,\n\n    task_type:\n      context.task_type,\n\n    source_section:\n      context.source_section,\n\n    schema_version:\n      context.extraction_config.schema_version,\n\n    validation: {\n      status: validationStatus,\n      error_count: errors.length,\n      warning_count: warnings.length,\n      errors,\n      warnings\n    },\n\n    extracted_data:\n      extractedData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        0
+      ],
+      "id": "44d3c1ff-6d6e-48e1-85e0-d929826134e0",
+      "name": "Parse & Validate AI Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(item => item.json);\n\nconst tasks = items.map(item => ({\n  task_type: item.task_type,\n  status: item.validation?.status ?? 'unknown',\n  error_count: item.validation?.error_count ?? 0,\n  warning_count: item.validation?.warning_count ?? 0,\n  errors: item.validation?.errors ?? [],\n  warnings: item.validation?.warnings ?? []\n}));\n\nconst counts = {\n  total_tasks: tasks.length,\n  passed: tasks.filter(t => t.status === 'pass').length,\n  warnings: tasks.filter(t => t.status === 'warning').length,\n  failed: tasks.filter(t => t.status === 'fail').length\n};\n\nlet overall_status = 'pass';\n\nif (counts.failed > 0) {\n  overall_status = 'fail';\n} else if (counts.warnings > 0) {\n  overall_status = 'warning';\n}\n\nreturn [\n  {\n    json: {\n      pipeline: 'PhyThera EMA Extraction',\n      schema_version: 'phythera_ema_v1',\n      overall_status,\n      counts,\n      tasks\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3008,
+        -192
+      ],
+      "id": "59f98f30-0eb6-44a4-a3ee-146aa91bd6e3",
+      "name": "Create QC Summary"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "4b2f0ac2-1e8a-42be-a884-4b6301d84eb4",
+              "leftValue": "={{ $json.validation.status }}",
+              "rightValue": "fail",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        2368,
+        0
+      ],
+      "id": "bf0b4dee-e2df-413b-b7c8-f041823493a4",
+      "name": "Needs Repair?"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are repairing a previously extracted biomedical evidence JSON object.\n\nThe extraction failed validation because one or more source quotes could not be verified verbatim against the source document.\n\nTASK:\n{{ $('Define Output Schema').item.json.task_type }}\n\nVALIDATION ERRORS:\n{{ JSON.stringify($json.validation.errors, null, 2) }}\n\nCURRENT EXTRACTED JSON:\n{{ JSON.stringify($json.extracted_data, null, 2) }}\n\nSOURCE TEXT:\n{{ $('Define Output Schema').item.json.text }}\n\nINSTRUCTIONS:\n\n- Return the COMPLETE corrected JSON object.\n- Return valid JSON only.\n- Do not use Markdown or code fences.\n- Preserve the existing schema exactly.\n- Do not add or remove keys.\n- Do not modify values that are unrelated to the validation errors.\n- Repair only the fields identified by the validation errors unless another change is strictly necessary.\n- Every source_quote MUST be an exact contiguous substring copied from SOURCE TEXT.\n- Never paraphrase a source_quote.\n- Never combine separate passages.\n- Never normalize spelling or punctuation inside a quote.\n- Prefer the shortest passage that directly supports the claim, ideally below 150 characters.\n- If no exact passage supports the claim, set source_quote to null.\n- Do not invent evidence.\n- Do not use outside knowledge.\n\nReturn only the complete corrected JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2480,
+        -336
+      ],
+      "id": "e32b13cf-075e-4a05-ba77-f7ceb3bddf2e",
+      "name": "Repair Failed Extraction"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        -496
+      ],
+      "id": "e77235d8-c21f-4572-a4c0-fc78f8efc5c1",
+      "name": "OpenRouter Chat Model1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Get the original task + target schema.\n// During development we currently have the Limit node in between.\nconst context = $('Define Output Schema').item.json;\n\nconst rawOutput = $json.text ?? '';\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Clean and parse model output\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return value\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/, '')\n    .trim();\n}\n\nlet extractedData = null;\n\ntry {\n  extractedData = JSON.parse(cleanJsonString(rawOutput));\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 2. Validate structure against target schema\n// --------------------------------------------------\n\nfunction validateStructure(expected, actual, path = '$') {\n\n  // null in our schema means:\n  // scalar value or null is expected\n  if (expected === null) {\n\n    if (\n      actual !== null &&\n      typeof actual === 'object'\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'scalar_or_null',\n        actual: Array.isArray(actual) ? 'array' : 'object'\n      });\n    }\n\n    return;\n  }\n\n  // Arrays\n  if (Array.isArray(expected)) {\n\n    if (!Array.isArray(actual)) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'array',\n        actual: typeof actual\n      });\n      return;\n    }\n\n    // If schema contains an example object,\n    // validate every returned item against it\n    if (expected.length > 0 && actual.length > 0) {\n      actual.forEach((item, index) => {\n        validateStructure(\n          expected[0],\n          item,\n          `${path}[${index}]`\n        );\n      });\n    }\n\n    return;\n  }\n\n  // Objects\n  if (\n    typeof expected === 'object' &&\n    expected !== null\n  ) {\n\n    if (\n      typeof actual !== 'object' ||\n      actual === null ||\n      Array.isArray(actual)\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        expected: 'object',\n        actual:\n          actual === null\n            ? 'null'\n            : Array.isArray(actual)\n            ? 'array'\n            : typeof actual\n      });\n\n      return;\n    }\n\n    const expectedKeys = Object.keys(expected);\n    const actualKeys = Object.keys(actual);\n\n    // Missing keys\n    for (const key of expectedKeys) {\n      if (!(key in actual)) {\n        errors.push({\n          type: 'missing_key',\n          path: `${path}.${key}`\n        });\n      }\n    }\n\n    // Unexpected keys\n    for (const key of actualKeys) {\n      if (!(key in expected)) {\n        errors.push({\n          type: 'unexpected_key',\n          path: `${path}.${key}`\n        });\n      }\n    }\n\n    // Recursively validate expected keys\n    for (const key of expectedKeys) {\n      if (key in actual) {\n        validateStructure(\n          expected[key],\n          actual[key],\n          `${path}.${key}`\n        );\n      }\n    }\n  }\n}\n\n// --------------------------------------------------\n// 3. Scientific / extraction-quality checks\n// --------------------------------------------------\n\nfunction inspectQuotes(value, path = '$') {\n\n  if (Array.isArray(value)) {\n    value.forEach((item, index) =>\n      inspectQuotes(item, `${path}[${index}]`)\n    );\n    return;\n  }\n\n  if (\n    typeof value === 'object' &&\n    value !== null\n  ) {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      if (\n        key === 'source_quote' &&\n        typeof child === 'string'\n      ) {\n\n        if (child.length > 350) {\n          warnings.push({\n            type: 'long_source_quote',\n            path: `${path}.${key}`,\n            characters: child.length,\n            message:\n              'Source quote is longer than necessary.'\n          });\n        }\n      }\n\n      inspectQuotes(child, `${path}.${key}`);\n    }\n  }\n}\n\n// --------------------------------------------------\n// 4. Cross-field consistency check for identity\n// --------------------------------------------------\n\nfunction checkIdentityConsistency(data) {\n\n  if (context.task_type !== 'identity') {\n    return;\n  }\n\n  const monographs =\n    data.pharmacopoeia_monographs ?? [];\n\n  const monographNumbers = new Set(\n    monographs\n      .map(item => item?.monograph_number)\n      .filter(Boolean)\n      .map(String)\n  );\n\n  const preparations =\n    data.preparations ?? [];\n\n  for (const preparation of preparations) {\n\n    const qualityStandard =\n      preparation?.quality_standard;\n\n    if (typeof qualityStandard !== 'string') {\n      continue;\n    }\n\n    const match =\n      qualityStandard.match(/monograph\\s+(\\d+)/i);\n\n    if (\n      match &&\n      !monographNumbers.has(match[1])\n    ) {\n      warnings.push({\n        type: 'cross_field_inconsistency',\n        field: 'pharmacopoeia_monographs',\n        detected_monograph: match[1],\n        message:\n          `Monograph ${match[1]} appears in a preparation but is not listed in pharmacopoeia_monographs.`\n      });\n    }\n  }\n}\n\n// --------------------------------------------------\n// Run validation\n// --------------------------------------------------\n\nif (extractedData !== null) {\n\n  validateStructure(\n    context.extraction_config.target_schema,\n    extractedData\n  );\n\n  inspectQuotes(extractedData);\n\n  checkIdentityConsistency(extractedData);\n\n  const normalizedSource =\n    normalizeText(context.text);\n\n  checkQuoteGrounding(\n    extractedData,\n    normalizedSource\n  );\n}\n\n/// --------------------------------------------------\n// 5. Verify that source quotes are grounded\n//    in the supplied EMA text\n// --------------------------------------------------\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n\n    // Unicode normalization\n    .normalize('NFKC')\n\n    // Remove soft hyphens\n    .replace(/\\u00AD/g, '')\n\n    // Undo PDF line-break hyphenation\n    // Example: \"well-\\nestablished\" → \"well-established\"\n    .replace(/([A-Za-z])-\\s*\\n\\s*([A-Za-z])/g, '$1-$2')\n\n    // Normalize typographic quotes\n    .replace(/[“”]/g, '\"')\n    .replace(/[‘’]/g, \"'\")\n\n    // Normalize different dash characters\n    .replace(/[‐-‒–—−]/g, '-')\n\n    // Normalize non-breaking spaces\n    .replace(/\\u00A0/g, ' ')\n\n    // Collapse whitespace\n    .replace(/\\s+/g, ' ')\n\n    .trim()\n    .toLowerCase();\n}\n\nfunction checkQuoteGrounding(\n  value,\n  normalizedSource,\n  path = '$'\n) {\n\n  if (Array.isArray(value)) {\n    value.forEach((item, index) =>\n      checkQuoteGrounding(\n        item,\n        normalizedSource,\n        `${path}[${index}]`\n      )\n    );\n    return;\n  }\n\n  if (\n    typeof value === 'object' &&\n    value !== null\n  ) {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      // Individual source_quote fields\n      if (\n        key === 'source_quote' &&\n        typeof child === 'string' &&\n        child.trim().length > 0\n      ) {\n\n        const normalizedQuote =\n          normalizeText(child);\n\n        if (\n          !normalizedSource.includes(\n            normalizedQuote\n          )\n        ) {\n          errors.push({\n            type: 'ungrounded_source_quote',\n            path: `${path}.${key}`,\n            message:\n              'The quoted evidence could not be found verbatim in the supplied source text.'\n          });\n        }\n      }\n\n      // supporting_quotes arrays\n      if (\n        key === 'supporting_quotes' &&\n        Array.isArray(child)\n      ) {\n\n        child.forEach((quote, index) => {\n\n          if (\n            typeof quote === 'string' &&\n            quote.trim().length > 0\n          ) {\n\n            const normalizedQuote =\n              normalizeText(quote);\n\n            if (\n              !normalizedSource.includes(\n                normalizedQuote\n              )\n            ) {\n              errors.push({\n                type: 'ungrounded_supporting_quote',\n                path:\n                  `${path}.${key}[${index}]`,\n                message:\n                  'Supporting quote could not be found verbatim in the supplied source text.'\n              });\n            }\n          }\n        });\n      }\n\n      checkQuoteGrounding(\n        child,\n        normalizedSource,\n        `${path}.${key}`\n      );\n    }\n  }\n}\n\n// --------------------------------------------------\n// Determine overall status\n// --------------------------------------------------\n\nlet validationStatus = 'pass';\n\nif (errors.length > 0) {\n  validationStatus = 'fail';\n} else if (warnings.length > 0) {\n  validationStatus = 'warning';\n}\n\n// --------------------------------------------------\n// Return real structured JSON\n// --------------------------------------------------\n\nreturn {\n  json: {\n\n    document_metadata:\n      context.document_metadata,\n\n    task_type:\n      context.task_type,\n\n    source_section:\n      context.source_section,\n\n    schema_version:\n      context.extraction_config.schema_version,\n\n    validation: {\n      status: validationStatus,\n      error_count: errors.length,\n      warning_count: warnings.length,\n      errors,\n      warnings\n    },\n\n    extracted_data:\n      extractedData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        -128
+      ],
+      "id": "8daab3ee-5c92-4182-91fa-2889aeb4fb65",
+      "name": "Parse & Validate Repair Output"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2896,
+        32
+      ],
+      "id": "d36353b5-778e-497a-a57d-67ca254c97cd",
+      "name": "Merge Validated Extractions"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(item => item.json);\n\nconst expectedTasks = [\n  'identity',\n  'constituents',\n  'medicinal_use',\n  'clinical_efficacy',\n  'safety',\n  'overall_assessment'\n];\n\nconst byTask = Object.fromEntries(\n  items.map(item => [item.task_type, item])\n);\n\n// Completeness check\nconst missingTasks = expectedTasks.filter(\n  task => !byTask[task]\n);\n\nif (missingTasks.length > 0) {\n  throw new Error(\n    `Missing extraction tasks: ${missingTasks.join(', ')}`\n  );\n}\n\n// Refuse assembly if anything still failed\nconst failedTasks = items\n  .filter(item => item.validation?.status === 'fail')\n  .map(item => item.task_type);\n\nif (failedTasks.length > 0) {\n  throw new Error(\n    `Cannot assemble profile. Failed validation: ${failedTasks.join(', ')}`\n  );\n}\n\n// Original source metadata\nconst source = $('Define Source').first().json;\nconst documentMetadata =\n  items[0]?.document_metadata ?? {};\n\nreturn [\n  {\n    json: {\n      profile_metadata: {\n        profile_type: 'EMA',\n        schema_version: 'phythera_ema_v1',\n        extraction_status: 'validated',\n\n        plant: source.plant ?? null,\n        indication_context:\n          source.indication_context ?? null,\n\n        source_type:\n          source.source_type ?? null,\n\n        document_type:\n          source.document_type ?? null,\n\n        source_url:\n          source.source_url ?? null,\n\n        document_title:\n          documentMetadata.title ?? null,\n\n        document_author:\n          documentMetadata.author ?? null,\n\n        document_id:\n          documentMetadata.document_id ?? null,\n\n        pages:\n          documentMetadata.pages ?? null\n      },\n\n      identity:\n        byTask.identity.extracted_data,\n\n      constituents:\n        byTask.constituents.extracted_data,\n\n      medicinal_use:\n        byTask.medicinal_use.extracted_data,\n\n      clinical_efficacy:\n        byTask.clinical_efficacy.extracted_data,\n\n      safety:\n        byTask.safety.extracted_data,\n\n      overall_assessment:\n        byTask.overall_assessment.extracted_data,\n\n      validation_summary: {\n        tasks_total: items.length,\n\n        passed: items.filter(\n          item => item.validation?.status === 'pass'\n        ).length,\n\n        warnings: items.filter(\n          item => item.validation?.status === 'warning'\n        ).length,\n\n        failed: items.filter(\n          item => item.validation?.status === 'fail'\n        ).length,\n\n        task_status: Object.fromEntries(\n          items.map(item => [\n            item.task_type,\n            item.validation?.status ?? 'unknown'\n          ])\n        )\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3088,
+        32
+      ],
+      "id": "7896ef0e-fefd-4902-a82d-7410dc93683d",
+      "name": "Assemble EMA Profile"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "plants",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Define Source').first().json.plant_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3312,
+        32
+      ],
+      "id": "32183f22-56b9-474e-b8e6-af9242b3bb9e",
+      "name": "Lookup Plant"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "indications",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "normalized_term",
+              "condition": "eq",
+              "keyValue": "={{ $('Define Source').first().json.indication_context }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3536,
+        32
+      ],
+      "id": "698f1a50-2b6e-401c-8b6e-c763e75465c6",
+      "name": "Lookup Indication"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "sources",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "url",
+              "condition": "eq",
+              "keyValue": "={{ $('Define Source').first().json.source_url }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3760,
+        32
+      ],
+      "id": "bbaff84b-3db8-4a3d-a8c6-782d16910ad9",
+      "name": "Lookup EMA Source"
+    },
+    {
+      "parameters": {
+        "tableId": "extraction_runs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "plant_id",
+              "fieldValue": "={{ $('Lookup Plant').first().json.id }}"
+            },
+            {
+              "fieldId": "indication_id",
+              "fieldValue": "={{ $('Lookup Indication').first().json.id }}"
+            },
+            {
+              "fieldId": "source_id",
+              "fieldValue": "={{ $('Lookup EMA Source').first().json.id }}"
+            },
+            {
+              "fieldId": "pipeline",
+              "fieldValue": "PhyThera EMA Extraction"
+            },
+            {
+              "fieldId": "schema_version",
+              "fieldValue": "={{ $('Assemble EMA Profile').first().json.profile_metadata.schema_version }}"
+            },
+            {
+              "fieldId": "validation_status",
+              "fieldValue": "={{    $('Assemble EMA Profile').first().json.validation_summary.failed > 0     ? 'fail'     : $('Assemble EMA Profile').first().json.validation_summary.warnings > 0       ? 'warning'       : 'pass' }}"
+            },
+            {
+              "fieldId": "model_provider",
+              "fieldValue": "OpenRouter"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "nvidia/nemotron-3-ultra-550b-a55b:free"
+            },
+            {
+              "fieldId": "prompt_version",
+              "fieldValue": "ema_extraction_v1"
+            },
+            {
+              "fieldId": "profile_json",
+              "fieldValue": "={{ $('Assemble EMA Profile').first().json }}"
+            },
+            {
+              "fieldId": "validation_summary",
+              "fieldValue": "={{ $('Assemble EMA Profile').first().json.validation_summary }}"
+            },
+            {
+              "fieldId": "human_review_status",
+              "fieldValue": "pending"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{   {     ingestion_type: 'automated_ema',     source_grounding: true,     repair_enabled: true,     human_gold_standard_available: true   } }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3984,
+        32
+      ],
+      "id": "d80fbaa6-ab92-487c-b477-3a9a209658e3",
+      "name": "Store Extraction Run"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -16,
+        288
+      ],
+      "id": "f4925034-ce89-4192-bf45-6e41b2636e7c",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Define Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Source": {
+      "main": [
+        [
+          {
+            "node": "Download EMA Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download EMA Document": {
+      "main": [
+        [
+          {
+            "node": "Extract EMA Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract EMA Text": {
+      "main": [
+        [
+          {
+            "node": "Prepare EMA Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare EMA Sections": {
+      "main": [
+        [
+          {
+            "node": "Create PhyThera Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create PhyThera Chunks": {
+      "main": [
+        [
+          {
+            "node": "Prepare Extraction Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Extraction Tasks": {
+      "main": [
+        [
+          {
+            "node": "Define Output Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Output Schema": {
+      "main": [
+        [
+          {
+            "node": "AI Structured Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Structured Extraction",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Structured Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate AI Output": {
+      "main": [
+        [
+          {
+            "node": "Needs Repair?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Repair?": {
+      "main": [
+        [
+          {
+            "node": "Repair Failed Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Validated Extractions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Repair Failed Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Repair Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Repair Failed Extraction",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Repair Output": {
+      "main": [
+        [
+          {
+            "node": "Merge Validated Extractions",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Validated Extractions": {
+      "main": [
+        [
+          {
+            "node": "Create QC Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Assemble EMA Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble EMA Profile": {
+      "main": [
+        [
+          {
+            "node": "Lookup Plant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Plant": {
+      "main": [
+        [
+          {
+            "node": "Lookup Indication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Indication": {
+      "main": [
+        [
+          {
+            "node": "Lookup EMA Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup EMA Source": {
+      "main": [
+        [
+          {
+            "node": "Store Extraction Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Define Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": []
+}

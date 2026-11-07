@@ -1,0 +1,486 @@
+{
+  "name": "PhyThera – TCM Ingestion v0.1",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0c28316f-2aad-4cd7-a266-1f9240194420",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "afd60f41-51fc-4177-87a9-141673423946",
+              "name": "document_type",
+              "value": "traditional herbal profile",
+              "type": "string"
+            },
+            {
+              "id": "df6cea64-b837-4e27-b07b-323e78055995",
+              "name": "plant",
+              "value": "={{ $json.scientific_name ?? $json.plant ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "2182ec6e-4cdc-4af9-84ee-ad9d797bafbb",
+              "name": "source_url",
+              "value": "={{ $json.traditional_source_url ?? $json.source_url ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "5ac5965f-4063-48f7-b342-5ff75b9700aa",
+              "name": "medical_system",
+              "value": "={{ $json.traditional_system ?? $json.medical_system ?? 'tcm' }}",
+              "type": "string"
+            },
+            {
+              "id": "a577a399-4841-4fe7-9018-f05724a89537",
+              "name": "source_type",
+              "value": "={{ $json.source_type ?? 'herbal_database' }}",
+              "type": "string"
+            },
+            {
+              "id": "2bbd3d9c-c266-4ecb-a47c-a421b207b557",
+              "name": "source_name",
+              "value": "={{ $json.source_name ?? 'Approved TCM Source' }}",
+              "type": "string"
+            },
+            {
+              "id": "public-source-policy-checked",
+              "name": "source_policy_checked",
+              "value": "={{ $json.source_policy_checked === true }}",
+              "type": "boolean"
+            },
+            {
+              "id": "public-retrieval-authorized",
+              "name": "automated_retrieval_authorized",
+              "value": "={{ $json.automated_retrieval_authorized === true }}",
+              "type": "boolean"
+            },
+            {
+              "id": "public-source-policy-status",
+              "name": "tcm_source_policy_status",
+              "value": "={{ $json.tcm_source_policy_status ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "public-source-policy-version",
+              "name": "tcm_source_policy_version",
+              "value": "={{ $json.tcm_source_policy_version ?? null }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "31230ee9-0e5b-45a3-9786-8a73ff10c8be",
+      "name": "Define TCM Source"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// Prepare TCM Source Text\n// Version: phythera_tcm_source_prepare_v2\n//\n// Generic preparation for an approved TCM source.\n// No provider-specific or plant-specific parsing.\n// ============================================================\n\nconst html =\n  $json.data ??\n  $json.body ??\n  $json.text ??\n  '';\n\n\n// ------------------------------------------------------------\n// Helpers\n// ------------------------------------------------------------\n\nfunction decodeHtml(text) {\n  return String(text ?? '')\n    .replace(/&nbsp;/gi, ' ')\n    .replace(/&amp;/gi, '&')\n    .replace(/&quot;/gi, '\"')\n    .replace(/&#39;/gi, \"'\")\n    .replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>')\n    .replace(/&#(\\d+);/g, (_, n) =>\n      String.fromCharCode(Number(n))\n    );\n}\n\n\nfunction htmlToText(value) {\n\n  return decodeHtml(value)\n\n    // Remove non-content elements\n    .replace(\n      /<script[\\s\\S]*?<\\/script>/gi,\n      ' '\n    )\n    .replace(\n      /<style[\\s\\S]*?<\\/style>/gi,\n      ' '\n    )\n    .replace(\n      /<noscript[\\s\\S]*?<\\/noscript>/gi,\n      ' '\n    )\n    .replace(\n      /<!--[\\s\\S]*?-->/g,\n      ' '\n    )\n\n    // Preserve rough structure\n    .replace(\n      /<\\/(p|div|section|article|li|h1|h2|h3|h4|h5|tr|table)>/gi,\n      '\\n'\n    )\n    .replace(\n      /<br\\s*\\/?>/gi,\n      '\\n'\n    )\n\n    // Remove remaining tags\n    .replace(\n      /<[^>]+>/g,\n      ' '\n    )\n\n    // Normalize whitespace\n    .replace(/\\r/g, '')\n    .replace(/[ \\t]+/g, ' ')\n    .replace(/\\n\\s*\\n+/g, '\\n')\n    .trim();\n}\n\n\n// ------------------------------------------------------------\n// Source metadata\n// ------------------------------------------------------------\n\nconst source =\n  $('Define TCM Source').item.json;\n\n\n// ------------------------------------------------------------\n// Prepare complete source text\n//\n// Important:\n// We intentionally do NOT make assumptions about provider-specific\n// section names or plant-specific wording.\n//\n// Extraction and validation downstream decide what information\n// is actually supported.\n// ------------------------------------------------------------\n\nconst sourceText =\n  htmlToText(html);\n\n\n// ------------------------------------------------------------\n// Output\n// ------------------------------------------------------------\n\nreturn {\n  json: {\n\n    source_metadata: {\n\n      plant:\n        source.plant ?? null,\n\n      chinese_name:\n        source.chinese_name ?? null,\n\n      pinyin:\n        source.pinyin ?? null,\n\n      latin_drug_name:\n        source.latin_drug_name ?? null,\n\n      source_type:\n        source.source_type ??\n        'herbal_database',\n\n      source_name:\n        source.source_name ??\n        'Approved TCM Source',\n\n      medical_system:\n        source.medical_system ??\n        'tcm',\n\n      document_type:\n        source.document_type ??\n        'traditional herbal profile',\n\n      source_url:\n        source.source_url ?? null\n    },\n\n\n    source_stats: {\n\n      source_text_length:\n        sourceText.length\n    },\n\n\n    // Generic source text.\n    // No provider-specific interpretation happens here.\n    source_text:\n      sourceText\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "c97611c2-b070-49e3-be5b-cb4c54dae431",
+      "name": "Prepare TCM Text"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const targetSchema = {\n  identity: {\n    chinese_name: null,\n    english_name: null,\n    latin_drug_name: null,\n    medicinal_group: null,\n    botanical_source: null,\n    family: null,\n    plant_part: null\n  },\n\n  tcm_properties: {\n    nature: null,\n    flavors: [],\n    meridian_affinity: []\n  },\n\n  traditional_actions: [\n    {\n      action: null,\n      source_quote: null\n    }\n  ],\n\n  traditional_indications: [\n    {\n      source_wording: null,\n      source_quote: null\n    }\n  ],\n\n  safety: {\n    cautions: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    interaction_warnings: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    adverse_effects: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ],\n\n    other_safety_notes: [\n      {\n        description: null,\n        source_quote: null\n      }\n    ]\n  },\n\n  uncertainties: []\n};\n\nconst rules = [\n  'Use only information explicitly supported by the supplied approved source text.',\n  'Do not use outside knowledge.',\n  'Do not infer therapeutic efficacy.',\n  'Preserve Traditional Chinese Medicine terminology.',\n  'Do not translate traditional TCM concepts into Western biomedical indications.',\n  'Do not create cross-cultural mappings in this extraction step.',\n  'If information is unsupported, use null for scalar fields and [] for list fields.',\n  'Every source_quote must be copied exactly as one contiguous substring from the supplied source text.',\n  'Never paraphrase, combine passages, normalize wording, or add ellipses inside source_quote.',\n  'Keep source_quote short and directly relevant.'\n];\n\nconst sourceText =\n  String(\n    $json.source_text ?? ''\n  ).trim();\n\nreturn {\n  json: {\n    source_metadata: $json.source_metadata,\n    schema_version: 'phythera_tcm_v1',\n\n    extraction_config: {\n      rules,\n      target_schema: targetSchema\n    },\n\n    source_text: sourceText,\n\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "b944e6be-6cd7-4b77-93f5-15d7bedc0c65",
+      "name": "Define TCM Output Schema"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a biomedical and ethnopharmacological evidence extraction system for PhyThera.\n\nYour task is to extract structured information from a Traditional Chinese Medicine herbal source.\n\nIMPORTANT:\nThe source contains traditional TCM terminology. Preserve that terminology exactly and do not reinterpret it as Western biomedical terminology.\n\nEXTRACTION RULES:\n- {{ $json.extraction_config.rules.join('\\n- ') }}\n\nADDITIONAL RULES:\n- Return VALID JSON only.\n- Do not use Markdown or code fences.\n- Preserve every key and nesting level of the target JSON structure.\n- Do not add new keys.\n- Replace null values only when directly supported by the source.\n- Use [] when no supported list items exist.\n- Do not infer efficacy.\n- Do not infer biomedical mechanisms.\n- Do not perform Europe–TCM semantic mapping.\n- Every source_quote MUST be an exact contiguous substring from SOURCE TEXT.\n- Never paraphrase or combine multiple passages inside source_quote.\n- If no exact supporting quote exists, use null.\n- Prefer short source quotes, ideally under 200 characters.\n- For traditional_indications, split lists of indications into separate semantically coherent entries whenever the source clearly enumerates multiple uses.\n- Each traditional_indications entry should contain the shortest exact source wording for that individual use or closely related use cluster. Prefer source_quote below 250 characters.\n\nTARGET JSON STRUCTURE:\n\n{{ JSON.stringify($json.extraction_config.target_schema, null, 2) }}\n\nSOURCE TEXT:\n\n{{ $json.source_text }}\n\nReturn only the completed JSON object.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "44ff9b59-cf79-4243-b9f7-2f9bbe627fa5",
+      "name": "AI Structured TCM Extraction"
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3.5-super-vl:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        192
+      ],
+      "id": "7ab3caf7-2ab5-413e-b661-d62f7faa547a",
+      "name": "OpenRouter Chat Model"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const context = $('Define TCM Output Schema').item.json;\n\nconst errors = [];\nconst warnings = [];\n\n// --------------------------------------------------\n// 1. Normalize text conservatively\n// --------------------------------------------------\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n    .normalize('NFKC')\n    .replace(/\\u00AD/g, '')\n    .replace(/([A-Za-z])-\\s*\\n\\s*([A-Za-z])/g, '$1-$2')\n    .replace(/[“”]/g, '\"')\n    .replace(/[‘’]/g, \"'\")\n    .replace(/[‐-‒–—−]/g, '-')\n    .replace(/\\u00A0/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .toLowerCase();\n}\n\n// --------------------------------------------------\n// 2. Remove possible Markdown fences\n// --------------------------------------------------\n\nfunction cleanJsonString(value) {\n  return String(value ?? '')\n    .trim()\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/\\s*```$/i, '')\n    .trim();\n}\n\n// --------------------------------------------------\n// 3. Parse AI output\n// --------------------------------------------------\n\nlet extractedData = null;\n\ntry {\n  extractedData = JSON.parse(\n    cleanJsonString($json.text)\n  );\n} catch (error) {\n  errors.push({\n    type: 'json_parse_error',\n    path: '$',\n    message: error.message\n  });\n}\n\n// --------------------------------------------------\n// 4. Validate schema structure\n// --------------------------------------------------\n\nfunction validateStructure(schema, value, path = '$') {\n\n  if (Array.isArray(schema)) {\n\n    if (!Array.isArray(value)) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        message: 'Expected array.'\n      });\n      return;\n    }\n\n    if (schema.length > 0) {\n      for (let i = 0; i < value.length; i++) {\n        validateStructure(\n          schema[0],\n          value[i],\n          `${path}[${i}]`\n        );\n      }\n    }\n\n    return;\n  }\n\n  if (\n    schema !== null &&\n    typeof schema === 'object'\n  ) {\n\n    if (\n      value === null ||\n      typeof value !== 'object' ||\n      Array.isArray(value)\n    ) {\n      errors.push({\n        type: 'type_mismatch',\n        path,\n        message: 'Expected object.'\n      });\n      return;\n    }\n\n    const schemaKeys = Object.keys(schema);\n    const valueKeys = Object.keys(value);\n\n    for (const key of schemaKeys) {\n      if (!(key in value)) {\n        errors.push({\n          type: 'missing_key',\n          path: `${path}.${key}`,\n          message: `Missing required key: ${key}`\n        });\n      } else {\n        validateStructure(\n          schema[key],\n          value[key],\n          `${path}.${key}`\n        );\n      }\n    }\n\n    for (const key of valueKeys) {\n      if (!(key in schema)) {\n        errors.push({\n          type: 'unexpected_key',\n          path: `${path}.${key}`,\n          message: `Unexpected key: ${key}`\n        });\n      }\n    }\n\n    return;\n  }\n\n  // null in the template = scalar value or null\n  if (\n    value !== null &&\n    typeof value === 'object'\n  ) {\n    errors.push({\n      type: 'type_mismatch',\n      path,\n      message: 'Expected scalar value or null.'\n    });\n  }\n}\n\n// --------------------------------------------------\n// 5. Validate source quotes\n// --------------------------------------------------\n\nfunction checkQuoteGrounding(\n  value,\n  normalizedSource,\n  path = '$'\n) {\n\n  if (Array.isArray(value)) {\n    value.forEach((child, index) =>\n      checkQuoteGrounding(\n        child,\n        normalizedSource,\n        `${path}[${index}]`\n      )\n    );\n\n    return;\n  }\n\n  if (\n    typeof value === 'object' &&\n    value !== null\n  ) {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      if (\n        key === 'source_quote' &&\n        typeof child === 'string' &&\n        child.trim().length > 0\n      ) {\n\n        const normalizedQuote =\n          normalizeText(child);\n\n        if (\n          !normalizedSource.includes(\n            normalizedQuote\n          )\n        ) {\n          errors.push({\n            type: 'ungrounded_source_quote',\n            path: `${path}.${key}`,\n            message:\n              'Quoted evidence could not be found verbatim in the supplied source text.'\n          });\n        }\n\n        if (child.length > 350) {\n          warnings.push({\n            type: 'long_source_quote',\n            path: `${path}.${key}`,\n            message:\n              'Source quote is longer than 350 characters.'\n          });\n        }\n      }\n\n      checkQuoteGrounding(\n        child,\n        normalizedSource,\n        `${path}.${key}`\n      );\n    }\n  }\n}\n\n// --------------------------------------------------\n// 6. Ground identity + TCM property values\n// --------------------------------------------------\n\nfunction checkScalarGrounding(\n  value,\n  normalizedSource,\n  path\n) {\n\n  if (\n    typeof value === 'string' &&\n    value.trim().length > 0\n  ) {\n\n    const normalizedValue =\n      normalizeText(value);\n\n    if (\n      !normalizedSource.includes(\n        normalizedValue\n      )\n    ) {\n      errors.push({\n        type: 'ungrounded_value',\n        path,\n        message:\n          'Extracted value could not be found in the supplied source text.'\n      });\n    }\n  }\n}\n\nfunction checkIdentityGrounding(\n  data,\n  normalizedSource\n) {\n\n  const identity =\n    data?.identity ?? {};\n\n  for (\n    const [key, value]\n    of Object.entries(identity)\n  ) {\n    checkScalarGrounding(\n      value,\n      normalizedSource,\n      `$.identity.${key}`\n    );\n  }\n\n  const properties =\n    data?.tcm_properties ?? {};\n\n  checkScalarGrounding(\n    properties.nature,\n    normalizedSource,\n    '$.tcm_properties.nature'\n  );\n\n  for (\n    const [index, flavor]\n    of (properties.flavors ?? []).entries()\n  ) {\n    checkScalarGrounding(\n      flavor,\n      normalizedSource,\n      `$.tcm_properties.flavors[${index}]`\n    );\n  }\n\n  for (\n    const [index, meridian]\n    of (properties.meridian_affinity ?? []).entries()\n  ) {\n    checkScalarGrounding(\n      meridian,\n      normalizedSource,\n      `$.tcm_properties.meridian_affinity[${index}]`\n    );\n  }\n}\n\n// --------------------------------------------------\n// 7. Run validation\n// --------------------------------------------------\n\nif (extractedData !== null) {\n\n  validateStructure(\n    context.extraction_config.target_schema,\n    extractedData\n  );\n\n  const normalizedSource =\n    normalizeText(context.source_text);\n\n  checkQuoteGrounding(\n    extractedData,\n    normalizedSource\n  );\n\n  checkIdentityGrounding(\n    extractedData,\n    normalizedSource\n  );\n}\n\n// --------------------------------------------------\n// 8. Determine status\n// --------------------------------------------------\n\nlet status = 'pass';\n\nif (errors.length > 0) {\n  status = 'fail';\n} else if (warnings.length > 0) {\n  status = 'warning';\n}\n\n// --------------------------------------------------\n// 9. Output\n// --------------------------------------------------\n\nreturn {\n  json: {\n    source_metadata:\n      context.source_metadata,\n\n    schema_version:\n      context.schema_version,\n\n    validation: {\n      status,\n      error_count: errors.length,\n      warning_count: warnings.length,\n      errors,\n      warnings\n    },\n\n    extracted_data:\n      extractedData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "da45bfdd-4f27-4575-a46a-3f48fc3c2fdb",
+      "name": "Parse & Validate TCM Output"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const validated = $json;\n\n\n// ============================================================\n// 1. Stop if validation failed\n// ============================================================\n\nif (\n  validated.validation?.status === 'fail'\n) {\n  throw new Error(\n    'Cannot assemble TCM profile because validation failed.'\n  );\n}\n\n\n// ============================================================\n// 2. Convenience references\n// ============================================================\n\nconst sourceMetadata =\n  validated.source_metadata ?? {};\n\nconst extractedData =\n  validated.extracted_data ?? {};\n\nconst identity =\n  extractedData.identity ?? {};\n\nconst tcmProperties =\n  extractedData.tcm_properties ?? {};\n\nconst traditionalActions =\n  extractedData.traditional_actions ?? [];\n\nconst traditionalIndications =\n  extractedData.traditional_indications ?? [];\n\nconst safety =\n  extractedData.safety ?? {};\n\nconst uncertainties =\n  extractedData.uncertainties ?? [];\n\n\n// ============================================================\n// 3. Determine extraction status\n// ============================================================\n\nlet extractionStatus =\n  'validated';\n\nif (\n  validated.validation?.status === 'warning'\n) {\n  extractionStatus =\n    'validated_with_warnings';\n}\n\n\n// ============================================================\n// 4. Build normalized TCM profile\n// ============================================================\n\nreturn {\n  json: {\n\n    // --------------------------------------------------------\n    // Profile metadata\n    // --------------------------------------------------------\n\n    profile_metadata: {\n\n      profile_type:\n        'TCM',\n\n      schema_version:\n        validated.schema_version ??\n        'phythera_tcm_v1',\n\n      extraction_status:\n        extractionStatus,\n\n\n      // ------------------------------------------------------\n      // Plant identity\n      // Prefer orchestrator/source metadata.\n      // Fall back to values extracted from the TCM source.\n      // ------------------------------------------------------\n\n      plant:\n        sourceMetadata.plant ??\n        identity.botanical_source ??\n        null,\n\n      chinese_name:\n        sourceMetadata.chinese_name ??\n        identity.chinese_name ??\n        null,\n\n      pinyin:\n        sourceMetadata.pinyin ??\n        null,\n\n      latin_drug_name:\n        sourceMetadata.latin_drug_name ??\n        identity.latin_drug_name ??\n        null,\n\n\n      // ------------------------------------------------------\n      // Source provenance\n      // ------------------------------------------------------\n\n      source_type:\n        validated.source_metadata?.source_type ??\n        'traditional_source',\n\n      source_name:\n        sourceMetadata.source_name ??\n        null,\n\n      medical_system:\n        sourceMetadata.medical_system ??\n        'tcm',\n\n      document_type:\n        sourceMetadata.document_type ??\n        'traditional herbal profile',\n\n      source_url:\n        sourceMetadata.source_url ??\n        null\n    },\n\n\n    // ========================================================\n    // 5. Extracted identity\n    // ========================================================\n\n    identity: {\n\n      chinese_name:\n        identity.chinese_name ??\n        null,\n\n      english_name:\n        identity.english_name ??\n        null,\n\n      latin_drug_name:\n        identity.latin_drug_name ??\n        null,\n\n      medicinal_group:\n        identity.medicinal_group ??\n        null,\n\n      botanical_source:\n        identity.botanical_source ??\n        null,\n\n      family:\n        identity.family ??\n        null,\n\n      plant_part:\n        identity.plant_part ??\n        null\n    },\n\n\n    // ========================================================\n    // 6. TCM properties\n    // ========================================================\n\n    tcm_properties: {\n\n      nature:\n        tcmProperties.nature ??\n        null,\n\n      flavors:\n        Array.isArray(\n          tcmProperties.flavors\n        )\n          ? tcmProperties.flavors\n          : [],\n\n      meridian_affinity:\n        Array.isArray(\n          tcmProperties.meridian_affinity\n        )\n          ? tcmProperties.meridian_affinity\n          : []\n    },\n\n\n    // ========================================================\n    // 7. Traditional actions\n    // ========================================================\n\n    traditional_actions:\n      Array.isArray(\n        traditionalActions\n      )\n        ? traditionalActions\n        : [],\n\n\n    // ========================================================\n    // 8. Traditional indications\n    // ========================================================\n\n    traditional_indications:\n      Array.isArray(\n        traditionalIndications\n      )\n        ? traditionalIndications\n        : [],\n\n\n    // ========================================================\n    // 9. Safety\n    // ========================================================\n\n    safety: {\n\n      cautions:\n        Array.isArray(\n          safety.cautions\n        )\n          ? safety.cautions\n          : [],\n\n      interaction_warnings:\n        Array.isArray(\n          safety.interaction_warnings\n        )\n          ? safety.interaction_warnings\n          : [],\n\n      adverse_effects:\n        Array.isArray(\n          safety.adverse_effects\n        )\n          ? safety.adverse_effects\n          : [],\n\n      other_safety_notes:\n        Array.isArray(\n          safety.other_safety_notes\n        )\n          ? safety.other_safety_notes\n          : []\n    },\n\n\n    // ========================================================\n    // 10. Uncertainties\n    // ========================================================\n\n    uncertainties:\n      Array.isArray(\n        uncertainties\n      )\n        ? uncertainties\n        : [],\n\n\n    // ========================================================\n    // 11. Validation summary\n    // ========================================================\n\n    validation_summary: {\n\n      status:\n        validated.validation?.status ??\n        'unknown',\n\n      error_count:\n        validated.validation?.error_count ??\n        0,\n\n      warning_count:\n        validated.validation?.warning_count ??\n        0,\n\n      errors:\n        Array.isArray(\n          validated.validation?.errors\n        )\n          ? validated.validation.errors\n          : [],\n\n      warnings:\n        Array.isArray(\n          validated.validation?.warnings\n        )\n          ? validated.validation.warnings\n          : []\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        0
+      ],
+      "id": "755ca79f-2874-463a-b232-e3187876141f",
+      "name": "Assemble TCM Profile"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "=plants",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "=scientific_name",
+              "condition": "eq",
+              "keyValue": "={{ $('Assemble TCM Profile').first().json.profile_metadata.plant }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2112,
+        0
+      ],
+      "id": "e6680b02-3f13-4e31-b76f-0e5a68d6d48b",
+      "name": "Lookup Plant"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "sources",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "url",
+              "condition": "eq",
+              "keyValue": "={{ $('Assemble TCM Profile').first().json.profile_metadata.source_url }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "fb9c3917-ccf9-4246-b64f-e07d4ac991b8",
+      "name": "Lookup TCM Source"
+    },
+    {
+      "parameters": {
+        "tableId": "extraction_runs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "plant_id",
+              "fieldValue": "={{ $('Lookup Plant').first().json.id }}"
+            },
+            {
+              "fieldId": "source_id",
+              "fieldValue": "={{ $('Lookup TCM Source').first().json.id }}"
+            },
+            {
+              "fieldId": "pipeline",
+              "fieldValue": "PhyThera TCM Extraction"
+            },
+            {
+              "fieldId": "schema_version",
+              "fieldValue": "={{ $('Assemble TCM Profile').first().json.profile_metadata.schema_version }}"
+            },
+            {
+              "fieldId": "validation_status",
+              "fieldValue": "={{ $('Assemble TCM Profile').first().json.validation_summary.status }}"
+            },
+            {
+              "fieldId": "model_provider",
+              "fieldValue": "OpenRouter"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "nvidia/nemotron-3.5-super-vl:free"
+            },
+            {
+              "fieldId": "prompt_version",
+              "fieldValue": "tcm_extraction_v1"
+            },
+            {
+              "fieldId": "profile_json",
+              "fieldValue": "={{ $('Assemble TCM Profile').first().json }}"
+            },
+            {
+              "fieldId": "validation_summary",
+              "fieldValue": "={{ $('Assemble TCM Profile').first().json.validation_summary }}"
+            },
+            {
+              "fieldId": "human_review_status",
+              "fieldValue": "pending"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{\n  {\n    ingestion_type: 'approved_source_ingestion',\n    source_policy_checked:\n      $('Define TCM Source').first().json.source_policy_checked === true,\n    automated_retrieval_authorized:\n      $('Define TCM Source').first().json.automated_retrieval_authorized === true,\n    source_policy_status:\n      $('Define TCM Source').first().json.tcm_source_policy_status ?? null,\n    source_policy_version:\n      $('Define TCM Source').first().json.tcm_source_policy_version ?? null,\n    source_grounding: true,\n    traditional_use_preserved: true,\n    cross_cultural_mapping_performed: false\n  }\n}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        0
+      ],
+      "id": "7cd557a5-df84-4fbf-9beb-999c49fa7fbe",
+      "name": "Store TCM Extraction Run"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -16,
+        208
+      ],
+      "id": "f4116ad6-e5e9-44db-812b-c9753461cbe9",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.source_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "3b6b20c6-4729-4d2a-9565-f329a5cd80ca",
+      "name": "Download Approved TCM Source"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\n\nconst authorized =\n  input.source_policy_checked === true &&\n  input.automated_retrieval_authorized === true;\n\nif (!authorized) {\n  throw new Error(\n    'Automated TCM retrieval blocked: explicit source authorization is missing.'\n  );\n}\n\nreturn [\n  {\n    json: input\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "407362ae-c5b1-4e9d-bf06-8cb4dd6e86f4",
+      "name": "Require Retrieval Authorization"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Define TCM Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define TCM Source": {
+      "main": [
+        [
+          {
+            "node": "Require Retrieval Authorization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare TCM Text": {
+      "main": [
+        [
+          {
+            "node": "Define TCM Output Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define TCM Output Schema": {
+      "main": [
+        [
+          {
+            "node": "AI Structured TCM Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Structured TCM Extraction",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Structured TCM Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate TCM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate TCM Output": {
+      "main": [
+        [
+          {
+            "node": "Assemble TCM Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble TCM Profile": {
+      "main": [
+        [
+          {
+            "node": "Lookup Plant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Plant": {
+      "main": [
+        [
+          {
+            "node": "Lookup TCM Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup TCM Source": {
+      "main": [
+        [
+          {
+            "node": "Store TCM Extraction Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Define TCM Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Approved TCM Source": {
+      "main": [
+        [
+          {
+            "node": "Prepare TCM Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Require Retrieval Authorization": {
+      "main": [
+        [
+          {
+            "node": "Download Approved TCM Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": []
+}
