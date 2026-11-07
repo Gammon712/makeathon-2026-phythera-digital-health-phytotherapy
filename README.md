@@ -190,8 +190,8 @@ The frontend can be run independently of n8n if it is connected to a compatible 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Gammon712/PhyThera.git
-cd PhyThera/frontend
+git clone https://github.com/Gammon712/makeathon-2026-phythera-digital-health-phytotherapy.git phythera
+cd phythera/frontend
 ```
 
 ### 2. Create a virtual environment
