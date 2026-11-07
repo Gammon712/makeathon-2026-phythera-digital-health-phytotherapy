@@ -135,7 +135,7 @@ PhyThera follows:
 
 > **AI where it helps. Deterministic logic where it matters.**
 
-AI-assisted:
+AI-assisted in the application:
 - structured extraction from complex documents,
 - semantic cross-cultural mapping.
 
@@ -146,6 +146,16 @@ Deterministic:
 - source convergence,
 - source-policy enforcement,
 - provenance consistency checks.
+
+### AI usage disclosure
+
+| AI / tool | Where it was used | Purpose |
+|---|---|---|
+| **LLM via an OpenRouter-compatible workflow** | PhyThera runtime / n8n workflows | Schema-bound extraction from complex source documents and semantic mapping between source concepts. AI output is validated before storage; final evidence scores are calculated by deterministic rules. |
+| **ChatGPT (OpenAI)** | Development support | Assistance with generating and refining Python, JavaScript and SQL code, debugging, workflow logic, data-model and scoring discussions, and technical documentation. The n8n workflows themselves were manually assembled and configured by the team. |
+| **ChatGPT (OpenAI)** | Submission and communication | Assistance with drafting and refining README/Devpost text and with the structure, wording and creation/refinement of the presentation. Final content was reviewed and edited by the team. |
+
+AI was not used to autonomously build or deploy the n8n workflows, generate the final Evidence Score, or make clinical recommendations. Source-derived results remain linked to their provenance, and AI-assisted outputs should not be interpreted as validated medical evidence on their own.
 
 More: [docs/responsible_ai.md](docs/responsible_ai.md).
 
